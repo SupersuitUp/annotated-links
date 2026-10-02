@@ -45,6 +45,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # npm checks the environment claim inside the OIDC token, so a record that NAMES an
     # environment the job does not declare fails as ENEEDAUTH, with nothing said about
     # environments. The trusted-publisher record for this package is created after its first

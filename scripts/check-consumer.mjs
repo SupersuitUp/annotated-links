@@ -44,10 +44,18 @@ const port = process.env.PORT ? Number(process.env.PORT) : await new Promise((ok
   const s = createServer().listen(0, () => { const p = s.address().port; s.close(() => ok(p)) })
 })
 const base = `http://127.0.0.1:${port}`
-const server = spawn('npx', ['next', 'start', '-p', String(port), '-H', '127.0.0.1'], { cwd: APP, stdio: ['ignore', 'pipe', 'inherit'] })
+// The next binary is spawned directly, in its own process group. Through `npx` the server is a
+// grandchild: SIGTERM to npx left `next-server` alive on Linux, still holding the stdout pipe, so
+// the event loop never drained and CI sat in_progress for an hour. Killing the group takes both.
+const server = spawn(join(APP, 'node_modules/.bin/next'), ['start', '-p', String(port), '-H', '127.0.0.1'], { cwd: APP, detached: true, stdio: ['ignore', 'pipe', 'inherit'] })
 server.stdout.on('data', () => {})
-const stop = () => { try { server.kill('SIGTERM') } catch { /* gone */ } }
-process.on('exit', stop)
+const killGroup = (sig) => { try { process.kill(-server.pid, sig) } catch { /* gone */ } }
+const stop = async () => {
+  killGroup('SIGTERM')
+  await new Promise((r) => setTimeout(r, 1500))
+  killGroup('SIGKILL')
+}
+process.on('exit', () => killGroup('SIGKILL'))
 
 for (let i = 0; ; i++) {
   try { if ((await fetch(base)).ok) break } catch { /* not up yet */ }
@@ -153,8 +161,10 @@ try {
   const toldDeleted = ((await call('GET', '/api/consumer-told')).json ?? []).filter((t) => t.what === 'deleted')
   expect(toldDeleted.length === 2 && toldDeleted.every((t) => !t.to.includes(t.by)), 'each delete reaches the optional deleted hook once, never addressed to the sender')
 } finally {
-  stop()
+  await stop()
 }
 
+// Exit explicitly: nothing left alive may keep a CI job waiting on the event loop.
 if (failures.length) { console.error(`${failures.length} consumer check(s) failed`); process.exit(1) }
 console.log('the consumer app used every handler and screen')
+process.exit(0)
