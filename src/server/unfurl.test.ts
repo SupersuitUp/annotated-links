@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
-import { unfurl } from './unfurl.js'
+import { guardedLookup, unfurl } from './unfurl.js'
+
+const dns = vi.hoisted(() => ({ answers: [] as { address: string; family: number }[] }))
+vi.mock('node:dns/promises', () => ({ lookup: async () => dns.answers }))
 
 const PUBLIC = async () => ['93.184.216.34']
 const html = (body: string, headers: Record<string, string> = {}) =>
@@ -155,6 +158,46 @@ describe('unfurl: never blocks a share', () => {
     expect(await unfurl('https://example.com/', { fetch: vi.fn() as never, lookup: async () => { throw new Error('dns') } })).toBeNull()
     expect(await unfurl('not a url', { fetch: vi.fn() as never, lookup: PUBLIC })).toBeNull()
     expect(await unfurl('https://example.com/', { fetch: async () => new Response('no', { status: 404 }), lookup: PUBLIC })).toBeNull()
-    expect(await unfurl('https://www.youtube.com/watch?v=abc123', { fetch: async () => new Response('x', { status: 500 }), lookup: PUBLIC })).toBeNull()
+  })
+
+  const urlOnly = { kind: 'youtube', youtubeId: 'abc123', siteName: 'YouTube', image: 'https://i.ytimg.com/vi/abc123/hqdefault.jpg' }
+
+  it('keeps a url-only YouTube preview when oEmbed answers non-2xx, throws, hangs or is refused', async () => {
+    const url = 'https://www.youtube.com/watch?v=abc123'
+    expect(await unfurl(url, { fetch: async () => new Response('x', { status: 500 }), lookup: PUBLIC })).toEqual(urlOnly)
+    expect(await unfurl(url, { fetch: async () => { throw new Error('boom') }, lookup: PUBLIC })).toEqual(urlOnly)
+    expect(await unfurl(url, { fetch: () => new Promise<Response>(() => {}), lookup: PUBLIC, timeoutMs: 60 })).toEqual(urlOnly)
+    expect(await unfurl(url, { fetch: vi.fn() as never, lookup: async () => ['10.0.0.1'] })).toEqual(urlOnly)
+    expect(await unfurl(`${url}&t=30`, { fetch: async () => new Response('{bad', { status: 200 }), lookup: PUBLIC })).toEqual({ ...urlOnly, startSec: 30 })
+  })
+
+  it('caps the oEmbed body at maxBytes', async () => {
+    let pulled = 0
+    const body = new ReadableStream<Uint8Array>({ pull(c) { pulled += 1024; c.enqueue(new Uint8Array(1024).fill(32)); if (pulled > 4 * 1024 * 1024) c.close() } })
+    const p = await unfurl('https://www.youtube.com/watch?v=abc123', { fetch: async () => new Response(body, { status: 200 }), lookup: PUBLIC, maxBytes: 8 * 1024 })
+    expect(p).toEqual(urlOnly)
+    expect(pulled).toBeLessThan(64 * 1024)
+  })
+})
+
+describe('guardedLookup (the connect-time check)', () => {
+  const call = (host: string, all: boolean) =>
+    new Promise<{ err: Error | null; address?: unknown; family?: number }>((resolve) => guardedLookup(host, { all }, (err, address, family) => resolve({ err, address, family })))
+
+  it('errors on a private answer', async () => {
+    dns.answers = [{ address: '169.254.169.254', family: 4 }]
+    expect((await call('rebind.example', true)).err).toBeInstanceOf(Error)
+  })
+
+  it('errors on a mixed public and private answer', async () => {
+    dns.answers = [{ address: '93.184.216.34', family: 4 }, { address: '::1', family: 6 }]
+    expect((await call('rebind.example', true)).err).toBeInstanceOf(Error)
+    expect((await call('rebind.example', false)).err).toBeInstanceOf(Error)
+  })
+
+  it('passes a public answer in the shape options.all asks for', async () => {
+    dns.answers = [{ address: '93.184.216.34', family: 4 }]
+    expect(await call('example.com', true)).toMatchObject({ err: null, address: [{ address: '93.184.216.34', family: 4 }] })
+    expect(await call('example.com', false)).toMatchObject({ err: null, address: '93.184.216.34', family: 4 })
   })
 })

@@ -1,4 +1,5 @@
 import { lookup as dnsLookup } from 'node:dns/promises'
+import { Agent, fetch as undiciFetch } from 'undici'
 import { youtubeOf } from '../url.js'
 import type { LinkPreview } from '../types.js'
 
@@ -73,6 +74,33 @@ export function isPrivateIp(ip: string): boolean {
 }
 
 class Refused extends Error {}
+
+type LookupCb = (err: Error | null, address?: string | { address: string; family: number }[], family?: number) => void
+
+// The connect-time half of the guard. The pre-flight check resolves the name once; the socket would
+// resolve it again, and a TTL-0 name can answer differently the second time. This runs inside the
+// socket's own lookup, so the address that is checked is the address that is connected to.
+// net's lookup contract: with options.all the callback takes a list of {address, family}, otherwise
+// a single address and its family.
+export function guardedLookup(hostname: string, options: { all?: boolean; family?: number | string } | undefined, cb: LookupCb): void {
+  const family = options?.family === 6 || options?.family === 'IPv6' ? 6 : options?.family === 4 || options?.family === 'IPv4' ? 4 : 0
+  dnsLookup(hostname, { all: true, family }).then(
+    (answers) => {
+      if (!answers.length || answers.some((a) => isPrivateIp(a.address))) return cb(new Refused('private address'))
+      if (options?.all) return cb(null, answers)
+      cb(null, answers[0].address, answers[0].family)
+    },
+    (err: Error) => cb(err),
+  )
+}
+
+let guardedAgent: Agent | undefined
+// undici's own fetch with undici's own Agent: never an Agent handed to Node's built-in fetch, whose
+// bundled undici major differs between Node versions.
+const defaultFetch = ((input: string, init?: RequestInit) => {
+  guardedAgent ??= new Agent({ connect: { lookup: guardedLookup as never } })
+  return undiciFetch(input, { ...(init as object), dispatcher: guardedAgent }) as unknown as Promise<Response>
+}) as typeof fetch
 
 interface Ctx {
   fetch: typeof fetch
@@ -186,17 +214,25 @@ export async function unfurl(url: string, opts: UnfurlOptions = {}): Promise<Lin
       timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
     })
     deadline.catch(() => {})
-    const ctx: Ctx = { fetch: opts.fetch ?? fetch, lookup: opts.lookup ?? defaultLookup, signal, deadline }
+    const ctx: Ctx = { fetch: opts.fetch ?? defaultFetch, lookup: opts.lookup ?? defaultLookup, signal, deadline }
 
     const yt = youtubeOf(url)
     if (yt) {
-      const { res } = await guardedFetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`, ctx)
-      if (!res.ok) return null
-      const data = (await Promise.race([res.json(), deadline])) as { title?: unknown; thumbnail_url?: unknown }
-      const preview: LinkPreview = { kind: 'youtube', youtubeId: yt.id, siteName: 'YouTube' }
+      // The id is known from the url alone, so a failed oEmbed still gets a thumbnail and a player.
+      const preview: LinkPreview = { kind: 'youtube', youtubeId: yt.id, siteName: 'YouTube', image: `https://i.ytimg.com/vi/${yt.id}/hqdefault.jpg` }
       if (yt.startSec) preview.startSec = yt.startSec
-      if (typeof data.title === 'string' && data.title) preview.title = data.title
-      if (typeof data.thumbnail_url === 'string' && data.thumbnail_url) preview.image = data.thumbnail_url
+      try {
+        const { res } = await guardedFetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`, ctx)
+        if (!res.ok) {
+          await res.body?.cancel().catch(() => {})
+          return preview
+        }
+        const data = JSON.parse(await readCapped(res, maxBytes, deadline)) as { title?: unknown; thumbnail_url?: unknown }
+        if (typeof data.title === 'string' && data.title) preview.title = data.title
+        if (typeof data.thumbnail_url === 'string' && data.thumbnail_url) preview.image = data.thumbnail_url
+      } catch {
+        // keep the url-only preview
+      }
       return preview
     }
 
