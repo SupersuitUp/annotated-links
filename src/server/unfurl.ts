@@ -178,21 +178,24 @@ function metaTags(html: string): Map<string, string> {
 
 const clean = (s: string | undefined) => (s && s.trim() ? s.trim() : undefined)
 
+// An image address a page or oEmbed gave, kept only when it is http or https (resolved against
+// `base` when relative). Anything else, or anything unparsable, means no image.
+function webUrl(raw: string, base?: URL): string | undefined {
+  try {
+    const u = new URL(raw, base)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function parsePage(html: string, finalUrl: URL): LinkPreview {
   const meta = metaTags(html)
   const titleTag = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)
   const title = clean(meta.get('og:title')) ?? clean(meta.get('twitter:title')) ?? clean(titleTag ? decode(titleTag[1]).replace(/\s+/g, ' ') : undefined)
   const description = clean(meta.get('og:description')) ?? clean(meta.get('twitter:description')) ?? clean(meta.get('description'))
-  let image: string | undefined
   const rawImage = clean(meta.get('og:image')) ?? clean(meta.get('twitter:image'))
-  if (rawImage) {
-    try {
-      const u = new URL(rawImage, finalUrl)
-      if (u.protocol === 'http:' || u.protocol === 'https:') image = u.toString()
-    } catch {
-      // an unusable image URL just means no image
-    }
-  }
+  const image = rawImage ? webUrl(rawImage, finalUrl) : undefined
   const siteName = clean(meta.get('og:site_name')) ?? finalUrl.hostname.replace(/^www\./, '')
   const preview: LinkPreview = { kind: 'page', siteName }
   if (title) preview.title = title
@@ -229,7 +232,8 @@ export async function unfurl(url: string, opts: UnfurlOptions = {}): Promise<Lin
         }
         const data = JSON.parse(await readCapped(res, maxBytes, deadline)) as { title?: unknown; thumbnail_url?: unknown }
         if (typeof data.title === 'string' && data.title) preview.title = data.title
-        if (typeof data.thumbnail_url === 'string' && data.thumbnail_url) preview.image = data.thumbnail_url
+        const thumb = typeof data.thumbnail_url === 'string' ? webUrl(data.thumbnail_url) : undefined
+        if (thumb) preview.image = thumb
       } catch {
         // keep the url-only preview
       }

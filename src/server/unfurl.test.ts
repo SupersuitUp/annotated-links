@@ -19,6 +19,14 @@ describe('unfurl: previews', () => {
     expect((fetch.mock.calls[0] as unknown[])[0]).toBe(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`)
   })
 
+  it('keeps an oEmbed thumbnail only when it is http or https, else the url-only one', async () => {
+    for (const bad of ['javascript:alert(1)', 'data:image/png;base64,AAAA', 'not a url at all']) {
+      const fetch = vi.fn(async () => Response.json({ title: 'A talk', thumbnail_url: bad }))
+      const p = await unfurl('https://youtu.be/abc123', { fetch, lookup: PUBLIC })
+      expect(p?.image).toBe('https://i.ytimg.com/vi/abc123/hqdefault.jpg')
+    }
+  })
+
   it('returns an image link as an image without reading the body', async () => {
     let pulls = 0
     const body = new ReadableStream<Uint8Array>({ pull(c) { pulls++; c.enqueue(new Uint8Array(8)) } }, { highWaterMark: 0 })
