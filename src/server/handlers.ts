@@ -17,7 +17,7 @@ type ReplyParams = { params: Promise<{ id: string; replyId: string }> }
 // Where each is mounted, under the app's apiBase (the client's `api` addresses assume exactly these):
 //   links        <api>                                    whyUploadUrl     <api>/why-upload-url
 //   preview      <api>/preview                            agent            <api>/agent
-//   link         <api>/[id]                               seen             <api>/[id]/seen
+//   link         <api>/[id]  (GET, DELETE)                seen             <api>/[id]/seen
 //   replies      <api>/[id]/replies                       replyUploadUrl   <api>/[id]/reply-upload-url
 //   replyAudio   <api>/[id]/replies/[replyId]/audio       replyTranscribe  <api>/[id]/replies/[replyId]/transcribe
 export function createLinksHandlers<M extends string>(host: AnnotatedLinksHost<M>, store: LinksStore<M> = createLinksStore(host)) {
@@ -52,6 +52,12 @@ export function createLinksHandlers<M extends string>(host: AnnotatedLinksHost<M
       GET: (req: Request, { params }: IdParams) => handle(async () => {
         const m = await signedIn(req)
         return json(await store.get(m, (await params).id))
+      }),
+      // Only the sender may delete. Anyone else, and an id that is not there (or no longer is), is 404.
+      DELETE: (req: Request, { params }: IdParams) => handle(async () => {
+        const m = await signedIn(req)
+        await store.remove(m, (await params).id)
+        return new Response(null, { status: 204 })
       }),
     },
     // Opening the link. Marks it for a recipient's first open only.

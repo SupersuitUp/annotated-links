@@ -1,4 +1,4 @@
 import { handlers } from '../../../../lib/host'
 
 export const runtime = 'nodejs'
-export const { GET } = handlers.link
+export const { GET, DELETE } = handlers.link

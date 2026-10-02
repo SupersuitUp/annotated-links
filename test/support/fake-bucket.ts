@@ -17,6 +17,12 @@ export function fakeBucket() {
       if (!o) throw new Error('No such object')
       return [o.bytes] as [Buffer]
     },
+    // Cloud Storage's delete: a missing object throws unless `ignoreNotFound` is set.
+    delete: async (opts: { ignoreNotFound?: boolean } = {}) => {
+      if (!objects.has(name) && !opts.ignoreNotFound) throw Object.assign(new Error('No such object'), { code: 404 })
+      objects.delete(name)
+      return [{}]
+    },
     getSignedUrl: async (opts: { action: string }) => [`https://signed.example/${opts.action}/${name}`] as [string],
   })
   return {

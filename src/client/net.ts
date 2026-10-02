@@ -25,6 +25,17 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+// A DELETE, answered with no body. A refusal is thrown with the server's words, as postJson does.
+export async function deleteAt(url: string): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(url, { method: 'DELETE' })
+  } catch {
+    throw new SendError('That did not reach the server. Check the connection and try again.', 0)
+  }
+  if (!res.ok) throw new SendError(await errorOf(res), res.status)
+}
+
 // A refusal that will be the same on every attempt: the recording it was for can be let go. A
 // dropped connection (0), a server fault (5xx) or a signed-out session (401) is worth another try.
 export const PERMANENT_REFUSALS: readonly number[] = [400, 403, 404, 409]

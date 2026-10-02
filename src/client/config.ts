@@ -24,6 +24,7 @@ export function apiAt(base: string) {
     links: () => base,
     preview: () => `${base}/preview`,
     whyUploadUrl: () => `${base}/why-upload-url`,
+    link: (id: string) => `${base}/${id}`,
     seen: (id: string) => `${base}/${id}/seen`,
     replies: (id: string) => `${base}/${id}/replies`,
     replyUploadUrl: (id: string) => `${base}/${id}/reply-upload-url`,

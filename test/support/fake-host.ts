@@ -26,7 +26,7 @@ export function fakeHost(opts: {
     collection: 'links',
     ...(opts.storage === false ? {} : { storage: { bucket: () => b.bucket, prefix: 'p/', signedUrl: vi.fn(async (path: string) => `signed:${path}`) } }),
     ...(opts.transcription === null ? {} : { transcription: opts.transcription ?? { transcribe: vi.fn(async () => 'hello there') } }),
-    announce: { shared: vi.fn(async () => {}), replied: vi.fn(async () => {}), seen: vi.fn(async () => {}) },
+    announce: { shared: vi.fn(async () => {}), replied: vi.fn(async () => {}), seen: vi.fn(async () => {}), deleted: vi.fn(async () => {}) },
     ...(opts.minWhyWords !== undefined ? { minWhyWords: opts.minWhyWords } : {}),
     voice: opts.voice ?? true,
     unfurl: vi.fn(async () => PREVIEW),

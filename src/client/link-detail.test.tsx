@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { screen, fireEvent, act, waitFor } from '@testing-library/react'
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
+const { replace } = vi.hoisted(() => ({ replace: vi.fn() }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace, refresh: vi.fn() }) }))
 vi.mock('./voice-recorder.js', () => ({
   VoiceRecorder: ({ onRecorded }: { onRecorded(r: { blob: Blob; durationSec: number; id: string; heard: boolean }): void }) => (
     <button type="button" onClick={() => onRecorded({ blob: new Blob(['ab'], { type: 'audio/webm;codecs=opus' }), durationSec: 6, id: 'r-reply-0001', heard: true })}>Record reply</button>
@@ -18,7 +19,7 @@ import { LinkDetail } from './link-detail.js'
 import { linksVault } from './vault.js'
 import { bodyOf, callsTo, link, setUp, stubFetch, render } from '../../test/support/links-client.js'
 
-beforeEach(() => setUp())
+beforeEach(() => { setUp(); replace.mockClear() })
 afterEach(async () => {
   vi.unstubAllGlobals()
   for (const r of await linksVault().all()) await linksVault().delete(r.id)
@@ -154,5 +155,55 @@ describe('LinkDetail', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Try again' })) })
     expect(await screen.findByText('got it now')).toBeInTheDocument()
     expect(callsTo(f, '/api/links/l1/replies/v1/transcribe')).toHaveLength(1)
+  })
+})
+
+describe('LinkDetail: deleting', () => {
+  it('offers Delete to the sender and never to a recipient', () => {
+    stubFetch()
+    const { unmount } = render(<LinkDetail link={link()} />)
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    unmount()
+    setUp({ me: 'bo' })
+    render(<LinkDetail link={link()} />)
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    expect(screen.queryByText(/Delete this link/)).toBeNull()
+  })
+
+  it('asks first, and Keep deletes nothing', async () => {
+    const f = stubFetch()
+    render(<LinkDetail link={link()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByText('Delete this link for both of you?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep' }))
+    expect(screen.queryByText('Delete this link for both of you?')).toBeNull()
+    await act(async () => {})
+    expect(callsTo(f, '/api/links/l1', 'DELETE')).toHaveLength(0)
+  })
+
+  it('deletes on the second tap and goes back to the library', async () => {
+    const f = stubFetch((url, init) => (url === '/api/links/l1' && init?.method === 'DELETE' ? new Response(null, { status: 204 }) : undefined))
+    render(<LinkDetail link={link()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Delete' })) })
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/links'))
+    expect(callsTo(f, '/api/links/l1', 'DELETE')).toHaveLength(1)
+  })
+
+  it('shows the server\'s words when the delete is refused, and stays', async () => {
+    stubFetch((url, init) => (url === '/api/links/l1' && init?.method === 'DELETE' ? Response.json({ error: 'link not found' }, { status: 404 }) : undefined))
+    render(<LinkDetail link={link()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Delete' })) })
+    expect(await screen.findByRole('alert')).toHaveTextContent('link not found')
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('says everyone when it went to more than one person', () => {
+    stubFetch()
+    render(<LinkDetail link={link({ to: ['bo', 'cy'] })} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByText('Delete this link for everyone you sent it to?')).toBeInTheDocument()
   })
 })

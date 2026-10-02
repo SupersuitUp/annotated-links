@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.1
+
+- **A sender can delete a link.** `DELETE <api>/[id]` (`handlers.link.DELETE`) removes the link for
+  everyone it went to, from both people's library and unseen count, together with its spoken why and
+  every spoken reply, using the paths the record names. Only the sender may: a recipient gets 404,
+  the same answer as a link they cannot read, so whether it exists never leaks. A second delete is
+  404, never a fault, and a later share under the same `shareId` files a new link rather than
+  bringing the deleted one back. `LinkDetail` shows the sender Delete, asks "Delete this link for both
+  of you?" (Delete, Keep), and goes back to the library once it is gone; a refusal shows the
+  server's words.
+- **Optional `announce.deleted(link, by)`** on the host. Leave it out and nobody is told.
+
+Nothing existing changes. To offer delete, an app adds one word to its `<api>/[id]/route.ts`:
+`export const { GET, DELETE } = handlers.link`. An app that does not keeps working as before, with
+no delete.
+
 ## 0.1.0
 
 First release. Annotated Links lets the people in a Next.js app share a link only with a reason:

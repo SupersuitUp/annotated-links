@@ -27,6 +27,7 @@ describe('every route', () => {
       await h.links.POST(post({ url: URL1, why: WHY })),
       await h.whyUploadUrl.POST(post({ id: 'why-0001', contentType: 'audio/webm', size: 10, durationSec: 4 })),
       await h.link.GET(get(), id),
+      await h.link.DELETE(new Request('https://x', { method: 'DELETE' }), id),
       await h.seen.POST(post({}), id),
       await h.replies.POST(post({ text: 'hi' }), id),
       await h.replyUploadUrl.POST(post({ replyId: 'reply-0001', contentType: 'audio/webm', size: 10, durationSec: 4 }), id),
@@ -101,6 +102,29 @@ describe('one link', () => {
     expect((await h.link.GET(get(), id)).status).toBe(404)
     expect((await h.seen.POST(post({}), id)).status).toBe(404)
     expect((await h.replies.POST(post({ text: 'x' }), id)).status).toBe(404)
+  })
+
+  it('deletes for the sender only: 204, then 404; a recipient and an unknown id get 404', async () => {
+    const { host, f } = fakeHost()
+    const h = createLinksHandlers(host)
+    const { link } = await (await h.links.POST(post({ url: URL1, why: WHY, to: ['ben'] }))).json()
+    const id = ctx({ id: link.id })
+    const del = () => new Request('https://x', { method: 'DELETE' })
+    vi.mocked(host.member).mockResolvedValue('ben')
+    const theirs = await h.link.DELETE(del(), id)
+    expect(theirs.status).toBe(404)
+    expect(await theirs.json()).toEqual({ error: 'link not found' })
+    expect(f.raw('links', link.id)).toBeDefined()
+    vi.mocked(host.member).mockResolvedValue('ana')
+    expect((await h.link.DELETE(del(), ctx({ id: 'no-such-link' }))).status).toBe(404)
+    const mine = await h.link.DELETE(del(), id)
+    expect(mine.status).toBe(204)
+    expect(await mine.text()).toBe('')
+    expect(f.raw('links', link.id)).toBeUndefined()
+    expect((await h.link.DELETE(del(), id)).status).toBe(404)
+    vi.mocked(host.member).mockResolvedValue('ben')
+    expect((await h.link.GET(get(), id)).status).toBe(404)
+    expect(await (await h.links.GET(get())).json()).toEqual([])
   })
 
   it('previews for the compose screen', async () => {

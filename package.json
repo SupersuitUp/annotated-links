@@ -1,6 +1,6 @@
 {
   "name": "@supersuit/annotated-links",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Share a link only with a why: the person you send it to reads your reason first, the link is marked seen, and they can reply typed or spoken.",
   "type": "module",
   "exports": {

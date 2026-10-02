@@ -55,6 +55,11 @@ export interface AnnotatedLinksHost<M extends string> {
     replied(l: AnnotatedLink<M>, r: Reply<M>, to: M[]): Promise<void>
     /** Optional: a recipient opened the link for the first time. */
     seen?(l: AnnotatedLink<M>, by: M): Promise<void>
+    /**
+     * Optional: the sender deleted the link, which is gone for everyone it was sent to. Called with
+     * the link as it stood, after the document and its recordings are gone. Leave it out to tell nobody.
+     */
+    deleted?(l: AnnotatedLink<M>, by: M): Promise<void>
   }
   /** Words a typed why must reach. Default DEFAULT_MIN_WHY_WORDS. */
   minWhyWords?: number

@@ -130,6 +130,25 @@ try {
   expect(blank.status === 200 && blank.text.replaceAll('<!-- -->', '').includes('0 of 8 words') && !blank.text.includes('Paste a web link'), 'GET /links/share draws an untouched form with no complaints')
   const detail = await call('GET', '/links/seed-youtube')
   expect(detail.status === 200 && detail.text.includes('youtube-nocookie.com/embed/M7lc1UVf-VE?start=42'), 'GET /links/[id] draws the link, playing from its start time')
+
+  // Deleting: only the sender, and afterwards it is gone for both of them, with its recordings.
+  const doomed = await call('POST', '/api/links', { headers: as('ana'), body: { url: 'https://example.net/d', why: EIGHT, to: ['ben'], shareId: 'consumer-delete' } })
+  const did = doomed.json?.link?.id
+  expect((await call('DELETE', `/api/links/${did}`, { headers: as('stranger') })).status === 401, 'DELETE /api/links/[id] refuses a stranger with 401')
+  expect((await call('DELETE', `/api/links/${did}`, { headers: as('ben') })).status === 404, 'DELETE /api/links/[id] answers the recipient 404')
+  const deleted = await call('DELETE', `/api/links/${did}`, { headers: as('ana') })
+  expect(deleted.status === 204, `DELETE /api/links/[id] deletes for the sender (${deleted.status})`)
+  const afterDelete = await call('GET', `/api/links/${did}`, { headers: as('ben') })
+  const benList = await call('GET', '/api/links', { headers: as('ben') })
+  expect(afterDelete.status === 404 && !(benList.json ?? []).some((l) => l.id === did), 'a deleted link is gone from the recipient too')
+  expect((await call('DELETE', `/api/links/${did}`, { headers: as('ana') })).status === 404, 'a second DELETE answers 404, not a fault')
+  const spokenGone = await call('DELETE', '/api/links/seed-spoken', { headers: as('ben') })
+  // Asking to upload at the same place again shows whether the bytes are still there: present, it
+  // answers { uploaded: true }; gone, it signs a fresh PUT.
+  const reTicket = await call('POST', '/api/links/why-upload-url', { headers: as('ben'), body: { id: 'seed-spoken-why', contentType: 'audio/webm', size: 2000, durationSec: 5 } })
+  expect(spokenGone.status === 204 && reTicket.status === 200 && typeof reTicket.json?.url === 'string', `deleting a link deletes its spoken why from storage (${spokenGone.status}, ${JSON.stringify(reTicket.json)})`)
+  const toldDeleted = ((await call('GET', '/api/consumer-told')).json ?? []).filter((t) => t.what === 'deleted')
+  expect(toldDeleted.length === 2 && toldDeleted.every((t) => !t.to.includes(t.by)), 'each delete reaches the optional deleted hook once, never addressed to the sender')
 } finally {
   stop()
 }

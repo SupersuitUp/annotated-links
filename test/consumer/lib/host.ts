@@ -97,6 +97,7 @@ export const host: AnnotatedLinksHost<M> = {
     shared: async (l, to) => { state().told.push({ what: 'shared', by: l.by, to }) },
     replied: async (_l, r, to) => { state().told.push({ what: 'replied', by: r.by, to }) },
     seen: async (l, by) => { state().told.push({ what: 'seen', by, to: [l.by] }) },
+    deleted: async (l, by) => { state().told.push({ what: 'deleted', by, to: l.to }) },
   },
   voice: true,
   unfurl: fakeUnfurl,

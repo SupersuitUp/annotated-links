@@ -477,3 +477,107 @@ describe('a resent share files once', () => {
     expect(host.announce.shared).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('deleting a link', () => {
+  const WHY_PATH = 'p/links-why/why-0009.webm'
+  const RID = 'reply-0009'
+  // Ana sends Ben a link with a spoken why; Ben answers typed and spoken.
+  const setup = async (opts: Parameters<typeof fakeHost>[0] = {}) => {
+    const h = fakeHost(opts)
+    const s = createLinksStore(h.host)
+    h.b.put(WHY_PATH, AUDIO, 'audio/webm', { 'links-by': 'ana' })
+    const { link } = await s.share('ana', { url: URL1, why: WHY, to: ['ben'], spokenWhy: { id: 'why-0009', contentType: 'audio/webm', durationSec: 4, heard: true } }, 'app')
+    await s.reply('ben', link.id, { text: 'on it' })
+    const replyPath = `p/links-audio/${link.id}/${RID}.webm`
+    h.b.put(replyPath, AUDIO, 'audio/webm', { 'links-by': 'ben' })
+    await s.fileVoiceReply('ben', link.id, { replyId: RID, contentType: 'audio/webm', durationSec: 5 })
+    return { ...h, s, link, replyPath }
+  }
+
+  it('lets the sender delete it: the document, the spoken why and every spoken reply go', async () => {
+    const { s, f, b, host, link, replyPath } = await setup()
+    expect(b.has(WHY_PATH) && b.has(replyPath)).toBe(true)
+    await s.remove('ana', link.id)
+    expect(f.raw('links', link.id)).toBeUndefined()
+    expect(b.has(WHY_PATH)).toBe(false)
+    expect(b.has(replyPath)).toBe(false)
+    expect(host.announce.deleted).toHaveBeenCalledWith(expect.objectContaining({ id: link.id }), 'ana')
+  })
+
+  it('is gone from both people\'s library and from the recipient\'s unseen', async () => {
+    const { s, link } = await setup()
+    expect((await s.list('ben')).map((l) => l.id)).toEqual([link.id])
+    await s.remove('ana', link.id)
+    expect(await s.list('ana')).toEqual([])
+    expect(await s.list('ben')).toEqual([])
+    expect(await status(s.get('ben', link.id))).toBe(404)
+  })
+
+  it('answers a recipient 404, the same as a link they cannot read, and leaves everything in place', async () => {
+    const { s, f, b, host, link, replyPath } = await setup()
+    expect(await status(s.remove('ben', link.id))).toBe(404)
+    expect(await message(s.remove('ben', link.id))).toBe(await message(s.remove('cy', link.id)))
+    expect(await message(s.remove('ben', link.id))).toBe(await message(s.get('cy', link.id)))
+    expect(f.raw('links', link.id)).toBeDefined()
+    expect(b.has(WHY_PATH) && b.has(replyPath)).toBe(true)
+    expect(host.announce.deleted).not.toHaveBeenCalled()
+  })
+
+  it('answers an unknown or empty id 404, and a second delete 404 rather than a fault', async () => {
+    const { s, link } = await setup()
+    expect(await status(s.remove('ana', 'no-such-link'))).toBe(404)
+    expect(await status(s.remove('ana', ''))).toBe(404)
+    await s.remove('ana', link.id)
+    expect(await status(s.remove('ana', link.id))).toBe(404)
+  })
+
+  it('deletes the paths the record names, never one built from the request, and a missing object is fine', async () => {
+    const { host, f, b } = fakeHost()
+    f.seed('links', {
+      odd: {
+        by: 'ana', to: ['ben'], url: URL1, key: 'example.com/a', why: WHY, at: '2026-10-01T00:00:00.000Z', preview: null, seenBy: {}, via: 'app',
+        spokenWhy: { path: 'elsewhere/the-why.m4a', contentType: 'audio/mp4', durationSec: 4 },
+        replies: [{ id: 'gone-0001', by: 'ben', at: 'x', voice: { path: 'elsewhere/never-uploaded.webm', contentType: 'audio/webm', durationSec: 3 } }],
+      },
+    })
+    b.put('elsewhere/the-why.m4a', AUDIO, 'audio/mp4')
+    b.put('p/links-why/odd.webm', AUDIO, 'audio/webm')
+    await createLinksStore(host).remove('ana', 'odd')
+    expect(b.has('elsewhere/the-why.m4a')).toBe(false)
+    expect(b.has('p/links-why/odd.webm')).toBe(true)
+    expect(host.log).not.toHaveBeenCalled()
+  })
+
+  it('logs a recording that fails to go and still deletes the link', async () => {
+    const { s, f, host, link } = await setup()
+    const file = host.storage!.bucket().file
+    vi.spyOn(host.storage!.bucket(), 'file').mockImplementation((p: string) => ({ ...file(p), delete: async () => { throw new Error('storage down') } }) as never)
+    await s.remove('ana', link.id)
+    expect(f.raw('links', link.id)).toBeUndefined()
+    expect(host.log).toHaveBeenCalledWith(expect.stringContaining('deleting a recording failed'), expect.any(Error))
+  })
+
+  it('works with no `deleted` hook, and a hook that throws is logged, never answered', async () => {
+    const a = await setup()
+    delete (a.host.announce as { deleted?: unknown }).deleted
+    await expect(a.s.remove('ana', a.link.id)).resolves.toBeUndefined()
+    const b2 = await setup()
+    vi.mocked(b2.host.announce.deleted!).mockRejectedValueOnce(new Error('push down'))
+    await expect(b2.s.remove('ana', b2.link.id)).resolves.toBeUndefined()
+    expect(b2.host.log).toHaveBeenCalledWith('announce deleted failed', expect.any(Error))
+  })
+
+  it('a later share under the same shareId files fresh, never the deleted one back', async () => {
+    const { host, f } = fakeHost()
+    const s = createLinksStore(host)
+    const first = await s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0009' }, 'app')
+    await s.reply('ben', first.link.id, { text: 'on it' })
+    await s.markSeen('ben', first.link.id)
+    await s.remove('ana', first.link.id)
+    const NEW_WHY = 'a different reason entirely for sending this same page along'
+    const again = await s.share('ana', { url: 'https://example.com/b', why: NEW_WHY, to: ['ben'], shareId: 'share-0009' }, 'app')
+    expect(again.link).toMatchObject({ why: NEW_WHY, url: 'https://example.com/b', replies: [], seenBy: {} })
+    expect(f.raw('links', again.link.id)).toMatchObject({ why: NEW_WHY, replies: [] })
+    expect(host.announce.shared).toHaveBeenCalledTimes(2)
+  })
+})

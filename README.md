@@ -89,8 +89,9 @@ short:
   note it hears nothing in cannot stand in for a short typed why: the share is refused with "No
   words were heard in the voice note. Record it again or type why." and nothing is filed or
   announced. A transcriber that fails, rather than hearing nothing, does not block the share.
-- `announce.shared(link, to)`, `announce.replied(link, reply, to)`, optional `announce.seen(link, by)`:
-  what each moment becomes (a push, in most apps). The package never sends one itself. Each is
+- `announce.shared(link, to)`, `announce.replied(link, reply, to)`, optional `announce.seen(link, by)`
+  and optional `announce.deleted(link, by)`: what each moment becomes (a push, in most apps). Leave
+  `deleted` out and a deleted link simply disappears for its recipients, with nobody told. The package never sends one itself. Each is
   awaited after the write is saved, and a failure goes to `log` and never changes the answer.
 - `minWhyWords`: words a typed why must reach. Default 8.
 - `voice`: voice, ALL of it. It governs spoken replies AND the spoken why. Off (the
@@ -182,12 +183,15 @@ The package hands these decisions to the host and cannot check them for you.
   link points to. A storage age rule cannot tell those from filed ones, so run the rule from the
   app's own timer: delete objects under `<prefix>links-why/` older than a day that no link's
   `spokenWhy.path` names, and objects under `<prefix>links-audio/<link>/` whose reply id is not in
-  that link's replies.
+  that link's replies, or whose link no longer exists. Deleting a link removes its recordings
+  itself; one that storage fails to remove at that moment is logged and left for this rule.
 
 ## Mounting the handlers
 
 Every route file is `export const runtime = 'nodejs'` plus one line such as
-`export const { GET, POST } = handlers.links`. Next.js reads segment config from the route file
+`export const { GET, POST } = handlers.links`, or `export const { GET, DELETE } = handlers.link` for
+`<api>/[id]/route.ts`. A route file that does not re-export a method simply does not answer it, so
+an app that leaves out `DELETE` has no delete. Next.js reads segment config from the route file
 itself, so the `maxDuration` lines below go in the file too. Exactly the three routes that
 transcribe need it; no other route does. `<api>` is your `apiBase`.
 
@@ -197,7 +201,7 @@ transcribe need it; no other route does. `<api>` is your `apiBase`.
 | `.preview.POST` | `<api>/preview/route.ts` | |
 | `.whyUploadUrl.POST` | `<api>/why-upload-url/route.ts` | |
 | `.agent.POST` | `<api>/agent/route.ts` | |
-| `.link.GET` | `<api>/[id]/route.ts` | |
+| `.link.GET`, `.link.DELETE` | `<api>/[id]/route.ts` | |
 | `.seen.POST` | `<api>/[id]/seen/route.ts` | |
 | `.replies.POST` | `<api>/[id]/replies/route.ts` | `maxDuration = 300` (a spoken reply is transcribed after it answers) |
 | `.replyUploadUrl.POST` | `<api>/[id]/reply-upload-url/route.ts` | |
@@ -216,6 +220,12 @@ What each takes:
 - `whyUploadUrl` and `replyUploadUrl`: `{ id | replyId, contentType, size, durationSec }`, answering
   `{ url, requiredHeaders }`, or `{ uploaded: true }` when the bytes are already there. The PUT must
   send `requiredHeaders` exactly as issued: they are signed, and they carry `x-goog-meta-links-by`.
+- `link` DELETE: no body. Only the link's sender may delete it; it answers 204 with nothing in it.
+  Anyone else, a recipient included, gets 404, the same answer as a link they cannot read, so
+  whether it exists never leaks, and a second delete is 404 too. The link is gone for everyone it
+  was sent to, from their library and their unseen count, together with its spoken why and every
+  spoken reply (the paths the record names). A later share under the same `shareId` files a new
+  link; it never brings the deleted one back.
 - `replies` POST: `{ text }` for a typed reply, or `{ replyId, contentType, durationSec }` for a
   spoken one whose bytes are already uploaded. A spoken reply's words are written after it answers.
 - `replyAudio` GET: a 302 to a short-lived signed URL (resolved against the request), behind the
@@ -238,7 +248,9 @@ export default async function SharePage({ searchParams }: { searchParams: Promis
 ```
 
 `LinksHome` takes `links` (from `store.list(me)`). `LinkDetail` takes `link` (from
-`store.get(me, id)`). `ShareLink` takes `people` and an optional `initialUrl`. Read in a server
+`store.get(me, id)`); for its sender it ends with Delete, which asks "Delete this link for both of
+you?" (Delete, Keep), then calls the `DELETE` route and goes back to `<pagesBase>`. A recipient sees
+no Delete. Mount `DELETE` on `<api>/[id]` or the confirmed tap answers with the route's refusal. `ShareLink` takes `people` and an optional `initialUrl`. Read in a server
 component, and render inside `LinksProvider`.
 
 **Who is looking has one source: the provider's `config.me`.** No screen takes a `me` prop, so the
@@ -273,7 +285,7 @@ whatever another provider was given.
 | `hairline` | Borders and dividers. |
 | `primary` | The one filled control (Share, Send) and the chosen chip. |
 | `primaryText` | Text drawn on `primary`. |
-| `danger` | Errors. |
+| `danger` | Errors, and the confirmed Delete. |
 | `fontHeading` | The face the why and the headings are set in. |
 | `fontBody` | Everything else. |
 

@@ -312,13 +312,40 @@ export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) 
     return storage().signedUrl(path)
   }
 
+  // Deleting a link, which only its sender may do. Anyone else, a recipient included, is answered
+  // exactly as a missing link is, so whether it exists never leaks. The document goes first, inside
+  // a transaction with the check, then every recording the RECORD names (never a path built from
+  // the request): the spoken why and each spoken reply. A recording already gone is not an error,
+  // and one that fails to go is logged rather than answered, because the link is already deleted and
+  // a retry would find nothing to retry; the host's cleanup rule takes what is left. A second delete
+  // finds no document and answers 404.
+  async function remove(m: M, id: string): Promise<void> {
+    if (typeof id !== 'string' || !id) throw new RuleError('link not found', 404)
+    const ref = links().doc(id)
+    const gone = await host.db().runTransaction(async (tx) => {
+      const doc = await tx.get(ref)
+      if (!doc.exists) throw new RuleError('link not found', 404)
+      const l = linkFrom(doc)
+      if (l.by !== m || !mayRead(l, m)) throw new RuleError('link not found', 404)
+      tx.delete(ref)
+      return l
+    })
+    const paths = [gone.spokenWhy?.path, ...gone.replies.map((r) => r.voice?.path)].filter((p): p is string => typeof p === 'string' && p !== '')
+    if (paths.length && host.storage) {
+      await Promise.all(paths.map(async (p) => {
+        try { await storage().bucket().file(p).delete({ ignoreNotFound: true }) } catch (err) { report(`deleting a recording failed: ${p}`, err) }
+      }))
+    } else if (paths.length) report(`a deleted link's recordings were left in place: the host has no storage`, null)
+    if (host.announce.deleted) await quietly('deleted', () => host.announce.deleted!(gone, m))
+  }
+
   // The compose screen's live preview. Never throws for a bad page, only for a link that is not one.
   async function previewFor(_m: M, raw: string): Promise<LinkPreview | null> {
     if (typeof raw !== 'string') throw new RuleError('url is required', 400)
     return preview(normalizeUrl(raw).url).catch(() => null)
   }
 
-  return { list, get, share, whyUploadUrl, markSeen, reply, replyUploadUrl, fileVoiceReply, transcribeReply, audioUrl, preview: previewFor }
+  return { list, get, share, remove, whyUploadUrl, markSeen, reply, replyUploadUrl, fileVoiceReply, transcribeReply, audioUrl, preview: previewFor }
 }
 
 export type LinksStore<M extends string> = ReturnType<typeof createLinksStore<M>>

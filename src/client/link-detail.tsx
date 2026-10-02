@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { AnnotatedLink, Reply } from '../types.js'
 import { useLinks } from './context.js'
 import { namesOf, shortDate } from './format.js'
 import { LinkCard } from './link-card.js'
-import { postJson } from './net.js'
+import { deleteAt, postJson } from './net.js'
 import { ReplyBox } from './reply-box.js'
 import { sendHeldReplies, sendReply } from './reply-send.js'
 
@@ -37,6 +38,55 @@ function Spoken({ src, words, wordsError, onRetry, large }: {
         ) : null}
       </figcaption>
     </figure>
+  )
+}
+
+// The sender's way to take a link back, for everyone it went to. Nothing is deleted until the
+// second tap, and a refusal shows the server's own words. A recipient never sees it.
+function DeleteLink({ link }: { link: AnnotatedLink }) {
+  const { theme: t, api, pages } = useLinks()
+  const router = useRouter()
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const whom = link.to.length === 1 ? 'both of you' : 'everyone you sent it to'
+
+  const remove = async () => {
+    setBusy(true)
+    setNote(null)
+    try {
+      await deleteAt(api.link(link.id))
+      router.replace(pages.home())
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'That did not go through. Try again.')
+      setBusy(false)
+    }
+  }
+
+  if (!asking) {
+    return (
+      <button type="button" onClick={() => setAsking(true)} className="self-start text-sm underline underline-offset-2" style={{ color: t.mute }}>
+        Delete
+      </button>
+    )
+  }
+  return (
+    <div role="group" aria-label="Delete this link" className="flex flex-col gap-3 rounded-xl px-3 py-3" style={{ backgroundColor: t.card, border: `1px solid ${t.hairline}` }}>
+      <p className="text-base">Delete this link for {whom}?</p>
+      <div className="flex gap-3">
+        <button
+          type="button" disabled={busy} onClick={remove}
+          className="flex h-11 items-center rounded-full px-4 text-sm font-medium disabled:opacity-40"
+          style={{ backgroundColor: t.card, color: t.danger, border: `1px solid ${t.danger}` }}
+        >Delete</button>
+        <button
+          type="button" disabled={busy} onClick={() => { setAsking(false); setNote(null) }}
+          className="flex h-11 items-center rounded-full px-4 text-sm font-medium"
+          style={{ backgroundColor: t.card, color: t.ink, border: `1px solid ${t.hairline}` }}
+        >Keep</button>
+      </div>
+      {note && <p role="alert" className="text-sm" style={{ color: t.danger }}>{note}</p>}
+    </div>
   )
 }
 
@@ -121,6 +171,8 @@ export function LinkDetail({ link: initial }: { link: AnnotatedLink }) {
         {retryNote && <p role="alert" className="text-sm" style={{ color: t.danger }}>{retryNote}</p>}
         <ReplyBox linkId={link.id} onSent={setLink} />
       </section>
+
+      {mine && <DeleteLink link={link} />}
     </article>
   )
 }
