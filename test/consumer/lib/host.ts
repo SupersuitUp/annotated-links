@@ -11,8 +11,6 @@ import { fakeFirestore } from './fake-firestore'
 export type M = 'ana' | 'ben'
 export const PEOPLE: M[] = ['ana', 'ben']
 export const NAMES: Record<M, string> = { ana: 'Ana', ben: 'Ben' }
-// signedUrl must answer an absolute URL: the audio route redirects to it.
-const ORIGIN = process.env.CONSUMER_ORIGIN ?? 'http://127.0.0.1:3000'
 export const AGENT_KEY = process.env.CONSUMER_AGENT_KEY ?? 'consumer-agent-key'
 
 export const whoFrom = (cookie: string | undefined | null): M | null => {
@@ -92,14 +90,15 @@ export const host: AnnotatedLinksHost<M> = {
   people: async () => PEOPLE,
   db: () => state().f.db as Firestore,
   collection: 'links',
-  storage: { bucket: () => state().b.bucket, prefix: 'consumer/', signedUrl: async (path) => `${ORIGIN}/consumer-audio/${path}` },
-  transcription: { languages: ['en'], transcribe: async () => 'a fake transcriber heard this' },
+  // signedUrl answers a path, which the audio route resolves against the request.
+  storage: { bucket: () => state().b.bucket, prefix: 'consumer/', signedUrl: async (path) => `/consumer-audio/${path}` },
+  transcription: { transcribe: async () => 'a fake transcriber heard this' },
   announce: {
     shared: async (l, to) => { state().told.push({ what: 'shared', by: l.by, to }) },
     replied: async (_l, r, to) => { state().told.push({ what: 'replied', by: r.by, to }) },
     seen: async (l, by) => { state().told.push({ what: 'seen', by, to: [l.by] }) },
   },
-  voiceReplies: true,
+  voice: true,
   unfurl: fakeUnfurl,
   log: (message, err) => console.error(message, err),
 }

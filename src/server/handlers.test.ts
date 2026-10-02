@@ -134,7 +134,7 @@ describe('voice', () => {
   })
 
   it('answers 404 on every voice route while voice is off', async () => {
-    const { host } = fakeHost({ voiceReplies: false })
+    const { host } = fakeHost({ voice: false })
     const h = createLinksHandlers(host)
     const { link } = await (await h.links.POST(post({ url: URL1, why: WHY, to: ['ben'] }))).json()
     const id = ctx({ id: link.id })
@@ -157,6 +157,17 @@ describe('voice', () => {
     expect(link.spokenWhy.words).toBe('hello there')
     const audio = await h.replyAudio.GET(get(), ctx({ id: link.id, replyId: 'why' }))
     expect(audio.status).toBe(302)
+  })
+
+  it('redirects to a relative signed URL resolved against the request, rather than failing', async () => {
+    const { host, b } = fakeHost()
+    vi.mocked(host.storage!.signedUrl).mockImplementation(async (path: string) => `/files/${path}`)
+    const h = createLinksHandlers(host)
+    b.put('p/links-why/why-0001.webm', AUDIO, 'audio/webm', { 'links-by': 'ana' })
+    const { link } = await (await h.links.POST(post({ url: URL1, why: '', to: ['ben'], spokenWhy: { id: 'why-0001', contentType: 'audio/webm', durationSec: 4, heard: true } }))).json()
+    const audio = await h.replyAudio.GET(new Request('https://app.example/api/links/x/replies/why/audio'), ctx({ id: link.id, replyId: 'why' }))
+    expect(audio.status).toBe(302)
+    expect(audio.headers.get('location')).toBe('https://app.example/files/p/links-why/why-0001.webm')
   })
 })
 

@@ -146,7 +146,7 @@ describe('the spoken why', () => {
   })
 
   it('is 404 while voice is off, ticket and share alike', async () => {
-    const { host } = fakeHost({ voiceReplies: false })
+    const { host } = fakeHost({ voice: false })
     const s = createLinksStore(host)
     expect(await status(s.whyUploadUrl('ana', ticket))).toBe(404)
     expect(await status(s.share('ana', { url: URL1, why: '', spokenWhy: spoken }, 'app'))).toBe(400)
@@ -172,6 +172,39 @@ describe('the spoken why', () => {
     vi.mocked(host.transcription!.transcribe).mockRejectedValueOnce(new Error('model down'))
     const { link } = await createLinksStore(host).share('ana', { url: URL1, why: '', spokenWhy: spoken }, 'app')
     expect(link.spokenWhy?.words).toBeUndefined()
+    expect(link.spokenWhy?.wordsError).toBe('the recording could not be made out')
+    expect(f.raw('links', link.id)).toBeDefined()
+    expect(host.announce.shared).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a silent voice note with a short typed why: nothing saved, nothing announced', async () => {
+    const { host, b, f } = fakeHost()
+    b.put(PATH, AUDIO, 'audio/webm', { 'links-by': 'ana' })
+    vi.mocked(host.transcription!.transcribe).mockResolvedValueOnce('   ')
+    const s = createLinksStore(host)
+    const out = s.share('ana', { url: URL1, why: 'just this', spokenWhy: spoken }, 'app')
+    expect(await message(out)).toBe('No words were heard in the voice note. Record it again or type why.')
+    vi.mocked(host.transcription!.transcribe).mockResolvedValueOnce('')
+    expect(await status(s.share('ana', { url: URL1, why: '', spokenWhy: spoken }, 'app'))).toBe(400)
+    expect(f.all('links')).toEqual({})
+    expect(host.announce.shared).not.toHaveBeenCalled()
+  })
+
+  it('files a silent voice note when the typed why is enough on its own', async () => {
+    const { host, b, f } = fakeHost()
+    b.put(PATH, AUDIO, 'audio/webm', { 'links-by': 'ana' })
+    vi.mocked(host.transcription!.transcribe).mockResolvedValueOnce('')
+    const { link } = await createLinksStore(host).share('ana', { url: URL1, why: WHY, spokenWhy: spoken }, 'app')
+    expect(link.spokenWhy?.wordsError).toBe('nothing was heard in that recording')
+    expect(f.raw('links', link.id)).toBeDefined()
+    expect(host.announce.shared).toHaveBeenCalledTimes(1)
+  })
+
+  it('files a voice note with a short typed why when the transcriber FAILED, rather than heard nothing', async () => {
+    const { host, b, f } = fakeHost()
+    b.put(PATH, AUDIO, 'audio/webm', { 'links-by': 'ana' })
+    vi.mocked(host.transcription!.transcribe).mockRejectedValueOnce(new Error('model down'))
+    const { link } = await createLinksStore(host).share('ana', { url: URL1, why: 'just this', spokenWhy: spoken }, 'app')
     expect(link.spokenWhy?.wordsError).toBe('the recording could not be made out')
     expect(f.raw('links', link.id)).toBeDefined()
     expect(host.announce.shared).toHaveBeenCalledTimes(1)
@@ -375,7 +408,7 @@ describe('spoken replies', () => {
   })
 
   it('is 404 on every voice route while voice is off', async () => {
-    const { s, link } = await setup({ voiceReplies: false })
+    const { s, link } = await setup({ voice: false })
     expect(await status(s.replyUploadUrl('ben', link.id, { ...clip, size: 10 }))).toBe(404)
     expect(await status(s.fileVoiceReply('ben', link.id, clip))).toBe(404)
     expect(await status(s.transcribeReply('ben', link.id, RID))).toBe(404)
@@ -387,7 +420,7 @@ describe('the host', () => {
   it('refuses voice with no storage at creation, naming what is missing', () => {
     const { host } = fakeHost({ storage: false })
     expect(() => createLinksStore(host)).toThrow(/storage/)
-    expect(() => createLinksStore({ ...host, voiceReplies: false })).not.toThrow()
+    expect(() => createLinksStore({ ...host, voice: false })).not.toThrow()
   })
 })
 

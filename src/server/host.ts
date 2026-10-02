@@ -33,13 +33,16 @@ export interface AnnotatedLinksHost<M extends string> {
   collection: string
   /**
    * Where voice is kept: spoken whys at `${prefix}links-why/<id>.<ext>`, spoken replies at
-   * `${prefix}links-audio/<link>/<reply>.<ext>`. Required when `voiceReplies` is on.
+   * `${prefix}links-audio/<link>/<reply>.<ext>`. Required when `voice` is on.
    */
   storage?: { bucket(): Bucket; prefix: string; signedUrl(path: string): Promise<string> }
   /** Optional: without it, spoken whys and replies stay playable with no words under them. */
   transcription?: {
-    /** The languages a speaker may name; the package always asks for 'auto'. */
-    languages: readonly string[]
+    /**
+     * Optional, and not read by the package: it always asks for `language: 'auto'`. A host may keep
+     * its own list here for its transcriber.
+     */
+    languages?: readonly string[]
     transcribe(audio: Buffer, contentType: string, opts: { language: string; speaker: M }): Promise<string>
   }
   /**
@@ -59,7 +62,7 @@ export interface AnnotatedLinksHost<M extends string> {
    * Voice, all of it: spoken replies AND the spoken why. Off (the default): every voice route
    * answers 404 and a share carrying a spoken why is refused. On: `storage` is required.
    */
-  voiceReplies?: boolean
+  voice?: boolean
   /** The preview fetcher. Tests inject one; the default is the package's guarded `unfurl`. */
   unfurl?: typeof unfurl
   /**

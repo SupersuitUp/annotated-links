@@ -10,7 +10,7 @@ export const PREVIEW: LinkPreview = { kind: 'page', title: 'A page', siteName: '
 // A whole host, every part a stand-in: three people, a preview that never touches the network,
 // signing visible in the URL, and a transcriber that says 'hello there'.
 export function fakeHost(opts: {
-  voiceReplies?: boolean
+  voice?: boolean
   transcription?: AnnotatedLinksHost<M>['transcription'] | null
   minWhyWords?: number
   agent?: boolean
@@ -25,10 +25,10 @@ export function fakeHost(opts: {
     db: () => f.db,
     collection: 'links',
     ...(opts.storage === false ? {} : { storage: { bucket: () => b.bucket, prefix: 'p/', signedUrl: vi.fn(async (path: string) => `signed:${path}`) } }),
-    ...(opts.transcription === null ? {} : { transcription: opts.transcription ?? { languages: ['en'], transcribe: vi.fn(async () => 'hello there') } }),
+    ...(opts.transcription === null ? {} : { transcription: opts.transcription ?? { transcribe: vi.fn(async () => 'hello there') } }),
     announce: { shared: vi.fn(async () => {}), replied: vi.fn(async () => {}), seen: vi.fn(async () => {}) },
     ...(opts.minWhyWords !== undefined ? { minWhyWords: opts.minWhyWords } : {}),
-    voiceReplies: opts.voiceReplies ?? true,
+    voice: opts.voice ?? true,
     unfurl: vi.fn(async () => PREVIEW),
     log: vi.fn(),
   }

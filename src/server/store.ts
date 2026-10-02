@@ -21,6 +21,7 @@ export const WHY_AUDIO_ID = 'why'
 const UPLOAD_WINDOW_MS = 15 * 60 * 1000
 const COULD_NOT = 'the recording could not be made out'
 const NOTHING_HEARD = 'nothing was heard in that recording'
+const NOTHING_HEARD_REFUSAL = 'No words were heard in the voice note. Record it again or type why.'
 const nowIso = () => new Date().toISOString()
 
 // One document per (sharer, share id). Hashed, so any person key and any client id make a valid
@@ -30,9 +31,9 @@ const shareDocId = (m: string, shareId: string) => createHash('sha256').update(`
 type Ticket = { url: string; requiredHeaders: Record<string, string> } | { uploaded: true }
 
 export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) {
-  const voice = host.voiceReplies === true
+  const voice = host.voice === true
   // Voice on with nowhere to keep it would fail on a person's first tap; it fails here instead.
-  if (voice && !host.storage) throw new Error('annotated-links: voiceReplies is on but the host has no storage')
+  if (voice && !host.storage) throw new Error('annotated-links: voice is on but the host has no storage')
   const min = host.minWhyWords ?? DEFAULT_MIN_WHY_WORDS
   const preview = host.unfurl ?? defaultUnfurl
   const links = () => host.db().collection(host.collection)
@@ -110,18 +111,20 @@ export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) 
     if (!(up.size > 0 && up.size <= AUDIO_MAX_BYTES)) throw new RuleError('that recording is too large', 400)
   }
 
-  // Never throws: a transcription that fails leaves a reason in place of the words.
-  async function words(path: string, contentType: string, speaker: M): Promise<{ words: string } | { wordsError: string }> {
+  // Never throws: a transcription that fails leaves a reason in place of the words. `silent` says the
+  // transcriber ran and heard nothing, which is a different thing from the transcriber failing.
+  async function hear(path: string, contentType: string, speaker: M): Promise<{ heard: { words: string } | { wordsError: string }; silent: boolean }> {
     const t = host.transcription!
     try {
       const [audio] = await storage().bucket().file(path).download()
       const out = (await t.transcribe(audio, contentType, { language: 'auto', speaker })).trim()
-      return out ? { words: out } : { wordsError: NOTHING_HEARD }
+      return out ? { heard: { words: out }, silent: false } : { heard: { wordsError: NOTHING_HEARD }, silent: true }
     } catch (err) {
       report(`transcription failed: ${path}`, err)
-      return { wordsError: isRuleError(err) || host.isRefusal?.(err) === true ? (err as Error).message : COULD_NOT }
+      return { heard: { wordsError: isRuleError(err) || host.isRefusal?.(err) === true ? (err as Error).message : COULD_NOT }, silent: false }
     }
   }
+  const words = async (path: string, contentType: string, speaker: M) => (await hear(path, contentType, speaker)).heard
 
   async function list(m: M): Promise<AnnotatedLink<M>[]> {
     const [mine, toMe] = await Promise.all([links().where('by', '==', m).get(), links().where('to', 'array-contains', m).get()])
@@ -169,8 +172,16 @@ export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) 
 
     const card: LinkPreview | null = await preview(url).catch(() => null)
     const earlier = alreadySent((await links().where('by', '==', m).get()).docs.map(linkFrom), key, m, to)
-    // Transcribed before anyone is told, so the push can lead with the words.
-    if (spokenWhy && host.transcription) spokenWhy = { ...spokenWhy, ...(await words(spokenWhy.path, spokenWhy.contentType, m)) }
+    // Transcribed before anyone is told, so the push can lead with the words. A voice note the
+    // transcriber heard nothing in cannot stand in for a short typed why: the phone's meter can call
+    // silence speech (an unmeasured iPhone recording counts as heard), so the words decide. Refused
+    // before the transaction, so nothing is filed or announced. A transcriber that FAILED proves
+    // nothing about the recording, and the share still goes.
+    if (spokenWhy && host.transcription) {
+      const { heard, silent } = await hear(spokenWhy.path, spokenWhy.contentType, m)
+      if (silent && whyProblem(input.why, url, min) !== null) throw new RuleError(NOTHING_HEARD_REFUSAL, 400)
+      spokenWhy = { ...spokenWhy, ...heard }
+    }
 
     const link: AnnotatedLink<M> = {
       id: ref.id, by: m, to, url, key, why: input.why, ...(spokenWhy ? { spokenWhy } : {}),

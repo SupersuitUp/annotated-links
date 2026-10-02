@@ -44,7 +44,7 @@ const port = process.env.PORT ? Number(process.env.PORT) : await new Promise((ok
   const s = createServer().listen(0, () => { const p = s.address().port; s.close(() => ok(p)) })
 })
 const base = `http://127.0.0.1:${port}`
-const server = spawn('npx', ['next', 'start', '-p', String(port), '-H', '127.0.0.1'], { cwd: APP, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, CONSUMER_ORIGIN: base } })
+const server = spawn('npx', ['next', 'start', '-p', String(port), '-H', '127.0.0.1'], { cwd: APP, stdio: ['ignore', 'pipe', 'inherit'] })
 server.stdout.on('data', () => {})
 const stop = () => { try { server.kill('SIGTERM') } catch { /* gone */ } }
 process.on('exit', stop)

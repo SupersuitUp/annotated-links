@@ -9,9 +9,10 @@ type IdParams = { params: Promise<{ id: string }> }
 type ReplyParams = { params: Promise<{ id: string; replyId: string }> }
 
 // The handlers an app mounts at its own addresses, one line per route file. Each route file still
-// declares its own segment config (`runtime = 'nodejs'`, and a longer `maxDuration` on the routes
-// that transcribe: links POST with a spoken why, replies POST and replyTranscribe), because Next.js
-// reads those from the route file itself.
+// declares its own segment config, because Next.js reads it from the route file itself: every one
+// sets `runtime = 'nodejs'`, and exactly the three that transcribe also set `maxDuration = 300`:
+// links POST (a spoken why is transcribed before the share answers), replies POST (a spoken reply
+// is transcribed in after() once it answers) and replyTranscribe. No other route needs it.
 //
 // Where each is mounted, under the app's apiBase (the client's `api` addresses assume exactly these):
 //   links        <api>                                    whyUploadUrl     <api>/why-upload-url
@@ -94,7 +95,8 @@ export function createLinksHandlers<M extends string>(host: AnnotatedLinksHost<M
       GET: (req: Request, { params }: ReplyParams) => handle(async () => {
         const m = await signedIn(req)
         const { id, replyId } = await params
-        return Response.redirect(await store.audioUrl(m, id, replyId), 302)
+        // Resolved against the request, so a host whose signedUrl answers a path works too.
+        return Response.redirect(new URL(await store.audioUrl(m, id, replyId), req.url), 302)
       }),
     },
     // Try again: transcribes a spoken reply that is already filed. No re-recording.
