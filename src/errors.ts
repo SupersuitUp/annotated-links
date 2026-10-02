@@ -9,7 +9,8 @@ export class RuleError extends Error {
 }
 
 // Whether an error is this package's own refusal. A host app with refusals of its own says so
-// through the optional `isRefusal` hook on its host, so an error is never shown to a client merely
+// through the optional `isRefusal` on its AnnotatedLinksHost, which ADDS to this check (the
+// handlers answer a refusal when either says so), so an error is never shown to a client merely
 // because it carries a 4xx status.
 export function isRuleError(err: unknown): err is RuleError {
   return err instanceof RuleError
