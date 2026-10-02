@@ -123,6 +123,8 @@ describe('unshared spoken whys', () => {
     await store.put(rec('r-newer', 'link-why:d-newer1', { createdAt: daysAgo(1), durationSec: 7, meta: { heard: true } }))
     await store.put(rec('r-sent', 'link-why:d-sent01', { createdAt: daysAgo(0), meta: { submitted: true, url: 'https://x.test' } }))
     await store.put(rec('r-stale', 'link-why:d-stale1', { createdAt: daysAgo(40) }))
+    // The newest of all, but judged silent: never offered back.
+    await store.put(rec('r-silent', 'link-why:d-silent1', { createdAt: daysAgo(0), meta: { heard: false } }))
     const found = await newestUnsharedWhy(store, NOW)
     expect(found).toEqual({ draftId: 'd-newer1', recorded: { blob: expect.any(Blob), durationSec: 7, id: 'r-newer', heard: true } })
     expect(await newestUnsharedWhy(memoryVault(), NOW)).toBeNull()

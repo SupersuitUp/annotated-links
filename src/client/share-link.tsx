@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation'
 import { forget, keepMeta, newRecordingId } from '@supersuit/cowitness/client'
 import type { AnnotatedLink, LinkPreview } from '../types.js'
 import { normalizeUrl } from '../url.js'
-import { DEFAULT_MIN_WHY_WORDS, whyProblem, whyWithoutUrl, whyWords } from '../why.js'
+import { DEFAULT_MIN_WHY_WORDS, NOTHING_HEARD_REFUSAL, whyProblem, whyWithoutUrl, whyWords } from '../why.js'
 import { useLinks } from './context.js'
 import { namesOf, shortDate } from './format.js'
 import { LinkCard } from './link-card.js'
-import { isPermanent, postJson } from './net.js'
+import { SendError, isPermanent, postJson } from './net.js'
 import { VoiceRecorder, type Recorded } from './voice-recorder.js'
 import { whyKey } from './vault.js'
 import { newestUnsharedWhy, sendHeldWhys, shareLink, sweepUnsharedWhys, type HeldWhyMeta, type UnsharedWhy } from './why-send.js'
@@ -123,10 +123,15 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
       if (out.earlier) setDone({ link: out.link, earlier: out.earlier })
       else router.push(pages.link(out.link.id))
     } catch (err) {
-      // Refused for good (no words heard in the voice note, say): the recording stays attached and on
-      // the phone as a draft, so it can be played back or recorded again, and is not resent on the
-      // next visit to be refused again.
-      if (spoken && isPermanent(err)) await keepMeta(v, spoken.id, { heard: spoken.heard }).catch(() => {})
+      // Refused for good: the recording stays attached and on the phone as a draft, so it can be
+      // played back or recorded again, and is not resent on the next visit to be refused again. When
+      // the server heard nothing in it, it is marked unheard: Share turns off with the nothing-heard
+      // sentence (a second tap cannot repeat the refusal) and a fresh form never offers it back.
+      if (spoken && isPermanent(err)) {
+        const silent = err instanceof SendError && err.status === 400 && err.message === NOTHING_HEARD_REFUSAL
+        await keepMeta(v, spoken.id, { heard: silent ? false : spoken.heard }).catch(() => {})
+        if (silent) setSpoken({ ...spoken, heard: false })
+      }
       setError(err instanceof Error ? err.message : 'That did not send. Try again.')
     } finally {
       setSending(false)

@@ -4,7 +4,7 @@ import type { DocumentSnapshot } from 'firebase-admin/firestore'
 import { RuleError, isRuleError } from '../errors.js'
 import { alreadySent, mayRead } from '../link-rules.js'
 import { normalizeUrl } from '../url.js'
-import { DEFAULT_MIN_WHY_WORDS, whyProblem } from '../why.js'
+import { DEFAULT_MIN_WHY_WORDS, NOTHING_HEARD_REFUSAL, whyProblem } from '../why.js'
 import type { AnnotatedLink, LinkPreview, Reply, SpokenWhy } from '../types.js'
 import type { AnnotatedLinksHost } from './host.js'
 import {
@@ -21,7 +21,6 @@ export const WHY_AUDIO_ID = 'why'
 const UPLOAD_WINDOW_MS = 15 * 60 * 1000
 const COULD_NOT = 'the recording could not be made out'
 const NOTHING_HEARD = 'nothing was heard in that recording'
-const NOTHING_HEARD_REFUSAL = 'No words were heard in the voice note. Record it again or type why.'
 const nowIso = () => new Date().toISOString()
 
 // One document per (sharer, share id). Hashed, so any person key and any client id make a valid

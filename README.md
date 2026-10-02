@@ -59,7 +59,7 @@ With Tailwind 4, add to the stylesheet that imports Tailwind:
 ## Three entry points
 
 - `@supersuit/annotated-links`: the types and every rule, pure and safe anywhere (`whyWords`,
-  `whyProblem`, `DEFAULT_MIN_WHY_WORDS`, `normalizeUrl`, `youtubeOf`, `mayRead`, `unseenFor`,
+  `whyProblem`, `DEFAULT_MIN_WHY_WORDS`, `NOTHING_HEARD_REFUSAL`, `normalizeUrl`, `youtubeOf`, `mayRead`, `unseenFor`,
   `alreadySent`, `linksTile`, `matches`, `RuleError`).
 - `@supersuit/annotated-links/server`: `createLinksStore(host)`, `createLinksHandlers(host)`,
   `unfurl`, the `AnnotatedLinksHost` type, `RuleError` and `isRuleError`, `UPLOADER_KEY`,

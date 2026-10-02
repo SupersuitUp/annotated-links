@@ -1,5 +1,8 @@
 export const DEFAULT_MIN_WHY_WORDS = 8
 export const MIN_SPOKEN_WHY_SEC = 3
+// The server's refusal when the transcriber heard nothing in a voice note standing in for a short
+// typed why. Shared, so a screen can tell this refusal from any other.
+export const NOTHING_HEARD_REFUSAL = 'No words were heard in the voice note. Record it again or type why.'
 
 const URL_RUN = /(?:https?:\/\/|www\.)\S+/gi
 

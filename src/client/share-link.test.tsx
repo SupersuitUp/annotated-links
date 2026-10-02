@@ -121,9 +121,48 @@ describe('ShareLink', () => {
     expect(screen.getByText('Voice note, 4 s')).toBeInTheDocument()
     const held = await linksVault().get('r-why-heard')
     expect(held).toBeDefined()
-    // A draft again, not a send: the next visit offers it back rather than resending a refusal.
+    // A draft again, not a send, and judged silent: the next visit neither resends nor offers it.
     expect((held?.meta as { submitted?: boolean }).submitted).not.toBe(true)
+    expect((held?.meta as { heard?: boolean }).heard).toBe(false)
     expect(push).not.toHaveBeenCalled()
+    // Share turns off with the nothing-heard sentence, so a second tap cannot repeat the 400.
+    expect(share()).toBeDisabled()
+    expect(screen.getByText('Say a little more about why: no words were heard in the voice note.')).toBeInTheDocument()
+  })
+
+  it('never offers back a recording the server judged silent', async () => {
+    const SILENT = 'No words were heard in the voice note. Record it again or type why.'
+    stubFetch(previewOk, (url, init) => {
+      if (url === '/api/links/why-upload-url') return Response.json({ uploaded: true })
+      if (url === '/api/links' && init?.method === 'POST') return Response.json({ error: SILENT }, { status: 400 })
+      return undefined
+    })
+    const first = render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Record 4s heard' }))
+    await linksVault().put({ id: 'r-why-heard', noteId: 'link-why:draft-silent', mimeType: 'audio/mp4', createdAt: new Date().toISOString(), durationSec: 4, stopped: true, chunks: [new Blob(['ab'])] })
+    await act(async () => { fireEvent.click(share()) })
+    expect(await screen.findByText(SILENT)).toBeInTheDocument()
+    first.unmount()
+    render(<ShareLink people={['ada', 'bo']} />)
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: /Use your recorded why/ })).toBeNull()
+  })
+
+  it('still offers back a recording refused for another reason (403)', async () => {
+    stubFetch(previewOk, (url, init) => {
+      if (url === '/api/links/why-upload-url') return Response.json({ uploaded: true })
+      if (url === '/api/links' && init?.method === 'POST') return Response.json({ error: 'that voice note is not yours to send, or did not finish uploading' }, { status: 403 })
+      return undefined
+    })
+    const first = render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Record 4s heard' }))
+    await linksVault().put({ id: 'r-why-heard', noteId: 'link-why:draft-403', mimeType: 'audio/mp4', createdAt: new Date().toISOString(), durationSec: 4, stopped: true, chunks: [new Blob(['ab'])] })
+    await act(async () => { fireEvent.click(share()) })
+    expect(await screen.findByText(/not yours to send/)).toBeInTheDocument()
+    expect(share()).toBeEnabled()
+    first.unmount()
+    render(<ShareLink people={['ada', 'bo']} />)
+    expect(await screen.findByRole('button', { name: 'Use your recorded why (4 s)' })).toBeInTheDocument()
   })
 
   it('does not count the pasted link as words, the same as the rule', () => {

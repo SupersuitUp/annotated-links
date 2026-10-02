@@ -69,16 +69,21 @@ export async function sweepUnsharedWhys(store: VaultStore, now: Date = new Date(
 /** A spoken why recorded on an earlier visit and never shared, still in the keep window. */
 export interface UnsharedWhy { draftId: string; recorded: SpokenDraft }
 
-// The newest finished, unshared spoken why, for a fresh share form to offer back.
+// The newest finished, unshared spoken why, for a fresh share form to offer back. One in which no
+// speech was heard (by the phone's meter or by the server) can never stand in for a why, so it is
+// never offered.
 export async function newestUnsharedWhy(store: VaultStore, now: Date = new Date()): Promise<UnsharedWhy | null> {
   const stale = new Set((await expired(store, { now })).map((r) => r.id))
   const candidates = (await store.all())
-    .filter((r) => draftOfKey(r.noteId) && r.stopped && !isEmpty(r) && !stale.has(r.id) && ((r.meta ?? {}) as HeldWhyMeta).submitted !== true)
+    .filter((r) => {
+      const meta = (r.meta ?? {}) as HeldWhyMeta
+      return draftOfKey(r.noteId) && r.stopped && !isEmpty(r) && !stale.has(r.id) && meta.submitted !== true && meta.heard === true
+    })
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
   const rec = candidates[0]
   if (!rec) return null
   return {
     draftId: draftOfKey(rec.noteId)!,
-    recorded: { blob: audioOf(rec), durationSec: rec.durationSec, id: rec.id, heard: ((rec.meta ?? {}) as HeldWhyMeta).heard === true },
+    recorded: { blob: audioOf(rec), durationSec: rec.durationSec, id: rec.id, heard: true },
   }
 }
