@@ -1,5 +1,5 @@
 import 'server-only'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { DocumentSnapshot } from 'firebase-admin/firestore'
 import { RuleError, isRuleError } from '../errors.js'
 import { alreadySent, mayRead } from '../link-rules.js'
@@ -23,6 +23,10 @@ const COULD_NOT = 'the recording could not be made out'
 const NOTHING_HEARD = 'nothing was heard in that recording'
 const nowIso = () => new Date().toISOString()
 
+// One document per (sharer, share id). Hashed, so any person key and any client id make a valid
+// Firestore document id, and two people's ids can only meet by a sha256 collision.
+const shareDocId = (m: string, shareId: string) => createHash('sha256').update(`${m}:${shareId}`).digest('hex').slice(0, 40)
+
 type Ticket = { url: string; requiredHeaders: Record<string, string> } | { uploaded: true }
 
 export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) {
@@ -44,7 +48,7 @@ export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) 
   const voiceOn = () => { if (!voice) throw new RuleError('voice is not on here', 404) }
   const storage = () => host.storage!
   const whyPath = (id: string, ct: string) => `${storage().prefix}links-why/${id}.${audioPathExt(ct)}`
-  const replyPath = (linkId: string, replyId: string, ct: string) => `${storage().prefix}links-replies/${linkId}/${replyId}.${audioPathExt(ct)}`
+  const replyPath = (linkId: string, replyId: string, ct: string) => `${storage().prefix}links-audio/${linkId}/${replyId}.${audioPathExt(ct)}`
 
   // Existence is private: a link this person may not read answers exactly as a missing one does.
   async function readable(m: M, id: string): Promise<AnnotatedLink<M>> {
@@ -129,11 +133,20 @@ export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) 
   const get = (m: M, id: string) => readable(m, id)
 
   async function share(
-    m: M, body: { url: string; why: string; to?: M[]; spokenWhy?: { id: string; contentType: string; durationSec: number; heard: boolean } }, via: 'app' | 'agent',
+    m: M, body: { url: string; why: string; to?: M[]; shareId?: string; spokenWhy?: { id: string; contentType: string; durationSec: number; heard: boolean } }, via: 'app' | 'agent',
   ): Promise<{ link: AnnotatedLink<M>; earlier: AnnotatedLink<M> | null }> {
     const input = parseShareBody(body)
     if (input.spokenWhy && via === 'agent') throw new RuleError('an agent shares with a typed why only', 400)
     if (input.spokenWhy && !voice) throw new RuleError('voice notes are not on here', 400)
+    // A resend after a lost answer must not file twice or tell anyone twice. The phone names the
+    // share (`shareId`, else its spoken why's id) and the document id follows from it and the
+    // sharer, so a second send finds the first one and hands it back untouched.
+    const shareId = input.shareId ?? input.spokenWhy?.id
+    const ref = links().doc(shareId ? shareDocId(m, shareId) : randomUUID())
+    if (shareId) {
+      const prior = await ref.get()
+      if (prior.exists) return resent(m, linkFrom(prior))
+    }
     const { url, key } = normalizeUrl(input.url)
     const people = await host.people()
     const to = input.to === undefined
@@ -159,14 +172,36 @@ export function createLinksStore<M extends string>(host: AnnotatedLinksHost<M>) 
     // Transcribed before anyone is told, so the push can lead with the words.
     if (spokenWhy && host.transcription) spokenWhy = { ...spokenWhy, ...(await words(spokenWhy.path, spokenWhy.contentType, m)) }
 
-    const ref = links().doc(randomUUID())
     const link: AnnotatedLink<M> = {
       id: ref.id, by: m, to, url, key, why: input.why, ...(spokenWhy ? { spokenWhy } : {}),
       at: nowIso(), preview: card, seenBy: {}, replies: [], via,
     }
-    await ref.set(stored(link))
+    // Created once, inside a transaction: two overlapping sends of one share can never both file.
+    let filed: { link: AnnotatedLink<M>; earlier: null } | null
+    try {
+      filed = await host.db().runTransaction(async (tx) => {
+        const doc = await tx.get(ref)
+        if (doc.exists) return resent(m, linkFrom(doc))
+        tx.create(ref, stored(link))
+        return null
+      })
+    } catch (err) {
+      // ALREADY_EXISTS (gRPC 6): the overlapping send won the create. Hand back what it filed.
+      if ((err as { code?: unknown }).code !== 6) throw err
+      const won = await ref.get()
+      if (!won.exists) throw err
+      filed = resent(m, linkFrom(won))
+    }
+    if (filed) return filed
     await quietly('shared', () => host.announce.shared(link, to))
     return { link, earlier }
+  }
+
+  // The same share sent again by its sharer: the link as filed, with no earlier (it was told at the
+  // first send). Anyone else's share under that id is a conflict, never a takeover.
+  function resent(m: M, l: AnnotatedLink<M>): { link: AnnotatedLink<M>; earlier: null } {
+    if (l.by !== m) throw new RuleError('that share id is already in use', 409)
+    return { link: l, earlier: null }
   }
 
   async function whyUploadUrl(m: M, body: { id: string; contentType: string; size: number; durationSec: number }): Promise<Ticket> {

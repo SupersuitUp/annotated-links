@@ -317,7 +317,7 @@ describe('spoken replies', () => {
     const h = fakeHost(opts)
     const s = createLinksStore(h.host)
     const { link } = await s.share('ana', { url: URL1, why: WHY, to: ['ben'] }, 'app')
-    const path = `p/links-replies/${link.id}/${RID}.webm`
+    const path = `p/links-audio/${link.id}/${RID}.webm`
     return { ...h, s, link, path }
   }
   const clip = { replyId: RID, contentType: 'audio/webm', durationSec: 5 }
@@ -388,5 +388,59 @@ describe('the host', () => {
     const { host } = fakeHost({ storage: false })
     expect(() => createLinksStore(host)).toThrow(/storage/)
     expect(() => createLinksStore({ ...host, voiceReplies: false })).not.toThrow()
+  })
+})
+
+describe('a resent share files once', () => {
+  const PATH = 'p/links-why/why-0001.webm'
+  const spoken = { id: 'why-0001', contentType: 'audio/webm', durationSec: 4, heard: true }
+
+  it('the same spoken-why id twice gives one doc, one transcription and one announce', async () => {
+    const { host, b, f } = fakeHost()
+    b.put(PATH, AUDIO, 'audio/webm', { 'links-by': 'ana' })
+    const s = createLinksStore(host)
+    const first = await s.share('ana', { url: URL1, why: '', to: ['ben'], spokenWhy: spoken }, 'app')
+    const again = await s.share('ana', { url: URL1, why: '', to: ['ben'], spokenWhy: spoken }, 'app')
+    expect(again.link).toEqual(first.link)
+    expect(again.earlier).toBeNull()
+    expect(Object.keys(f.all('links'))).toHaveLength(1)
+    expect(host.transcription!.transcribe).toHaveBeenCalledTimes(1)
+    expect(host.announce.shared).toHaveBeenCalledTimes(1)
+  })
+
+  it('the same typed shareId twice gives one doc and one announce, on the agent route too', async () => {
+    const { host, f } = fakeHost()
+    const s = createLinksStore(host)
+    const first = await s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0001' }, 'app')
+    const again = await s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0001' }, 'app')
+    expect(again.link.id).toBe(first.link.id)
+    await s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0002' }, 'agent')
+    await s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0002' }, 'agent')
+    expect(Object.keys(f.all('links'))).toHaveLength(2)
+    expect(host.announce.shared).toHaveBeenCalledTimes(2)
+  })
+
+  it('another member\'s link under that share id is 409, never a takeover', async () => {
+    const { host, f } = fakeHost()
+    const s = createLinksStore(host)
+    const first = await s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0001' }, 'app')
+    // A different person's id lands elsewhere; force the collision the hash makes near-impossible.
+    const theirs = await s.share('ben', { url: URL1, why: WHY, to: ['ana'], shareId: 'share-0001' }, 'app')
+    expect(theirs.link.id).not.toBe(first.link.id)
+    f.seed('links', { [theirs.link.id]: { ...f.raw('links', theirs.link.id)!, by: 'cy' } })
+    expect(await status(s.share('ben', { url: URL1, why: WHY, to: ['ana'], shareId: 'share-0001' }, 'app'))).toBe(409)
+    expect(await status(s.share('ana', { url: URL1, why: WHY, shareId: '../bad' }, 'app'))).toBe(400)
+  })
+
+  it('a race past the first look still files once', async () => {
+    const { host, f } = fakeHost()
+    const s = createLinksStore(host)
+    const [a, b2] = await Promise.all([
+      s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0003' }, 'app'),
+      s.share('ana', { url: URL1, why: WHY, to: ['ben'], shareId: 'share-0003' }, 'app'),
+    ])
+    expect(a.link.id).toBe(b2.link.id)
+    expect(Object.keys(f.all('links'))).toHaveLength(1)
+    expect(host.announce.shared).toHaveBeenCalledTimes(1)
   })
 })

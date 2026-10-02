@@ -10,6 +10,12 @@ export type Bucket = ReturnType<ReturnType<typeof getStorage>['bucket']>
 // Everything the app hands Annotated Links. The package knows how a link with a why works; the app
 // says who the people are, where links are kept, and what a share or a reply becomes for the people
 // told.
+//
+// Shares are filed once per `shareId`: a client (the app, a plugin CLI, the agent route) sends
+// `{ shareId }` (8 to 64 letters, numbers, - or _) with a share, and a resend of the same id by the
+// same person answers with the link already filed (earlier: null), without transcribing or telling
+// anyone again. A share with a spoken why and no shareId uses the spoken why's id. Another person's
+// link under that id is 409. With neither, every send files a new link.
 export interface AnnotatedLinksHost<M extends string> {
   /** Who is signed in for this request (the app's session), or null for a stranger. The app enforces membership. */
   member(req?: Request): Promise<M | null>
@@ -27,7 +33,7 @@ export interface AnnotatedLinksHost<M extends string> {
   collection: string
   /**
    * Where voice is kept: spoken whys at `${prefix}links-why/<id>.<ext>`, spoken replies at
-   * `${prefix}links-replies/<link>/<reply>.<ext>`. Required when `voiceReplies` is on.
+   * `${prefix}links-audio/<link>/<reply>.<ext>`. Required when `voiceReplies` is on.
    */
   storage?: { bucket(): Bucket; prefix: string; signedUrl(path: string): Promise<string> }
   /** Optional: without it, spoken whys and replies stay playable with no words under them. */

@@ -23,7 +23,9 @@ export function createLinksHandlers<M extends string>(host: AnnotatedLinksHost<M
   const json = (v: unknown) => Response.json(v)
 
   return {
-    // GET: everything this person may read, newest first. POST: { url, why, to?, spokenWhy? }.
+    // GET: everything this person may read, newest first. POST: { url, why, to?, shareId?, spokenWhy? }.
+    // Send a fresh shareId per share and the SAME one on a retry: a resend answers with the link
+    // already filed (earlier: null) and announces nothing; another member's shareId is 409.
     links: {
       GET: (req?: Request) => handle(async () => json(await store.list(await signedIn(req)))),
       POST: (req: Request) => handle(async () => {
@@ -106,6 +108,7 @@ export function createLinksHandlers<M extends string>(host: AnnotatedLinksHost<M
     },
     // A share from an agent key. Never the session: no agentMember, or a key it does not know, is 401.
     // The same why minimum applies; a spoken why is refused, since an agent has no voice of yours.
+    // Body: { url, why, to?, shareId? }; a plugin CLI should send a shareId so its retry files once.
     agent: {
       POST: (req: Request) => handle(async () => {
         const m = host.agentMember ? await host.agentMember(req) : null

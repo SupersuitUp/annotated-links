@@ -56,6 +56,7 @@ export interface ShareInput {
   url: string
   why: string
   to?: string[]
+  shareId?: string
   spokenWhy?: { id: string; contentType: string; durationSec: number; heard: boolean }
 }
 
@@ -67,6 +68,7 @@ export function parseShareBody(body: unknown): ShareInput {
   const why = ((b.why as string | undefined) ?? '').trim()
   if (why.length > WHY_MAX_CHARS) throw new RuleError(`A why can be at most ${WHY_MAX_CHARS} characters.`, 400)
   const out: ShareInput = { url: b.url, why }
+  if (b.shareId !== undefined) out.shareId = parseClientId(b.shareId, 'shareId')
   if (b.to !== undefined) {
     if (!Array.isArray(b.to) || !b.to.every((x) => typeof x === 'string')) throw new RuleError('to must be a list of people', 400)
     out.to = b.to as string[]

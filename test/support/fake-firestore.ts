@@ -51,6 +51,13 @@ export function fakeFirestore() {
       const tx = {
         get: (r: { get(): Promise<unknown> }) => r.get(),
         set: (r: { collectionName: string; id: string }, data: Data) => { writes.push(() => coll(r.collectionName).set(r.id, structuredClone(data))) },
+        // Refused at commit when the document exists, as Firestore's transactional create is.
+        create: (r: { collectionName: string; id: string }, data: Data) => {
+          writes.push(() => {
+            if (coll(r.collectionName).has(r.id)) throw Object.assign(new Error('ALREADY_EXISTS'), { code: 6 })
+            coll(r.collectionName).set(r.id, structuredClone(data))
+          })
+        },
         delete: (r: { collectionName: string; id: string }) => { writes.push(() => coll(r.collectionName).delete(r.id)) },
       }
       const out = await fn(tx)

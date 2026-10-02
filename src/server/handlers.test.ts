@@ -120,7 +120,7 @@ describe('voice', () => {
     vi.mocked(host.member).mockResolvedValue('ben')
     const t = await (await h.replyUploadUrl.POST(post({ replyId: RID, contentType: 'audio/webm', size: AUDIO.length, durationSec: 4 }), id)).json()
     expect(t.requiredHeaders['x-goog-meta-links-by']).toBe('ben')
-    const path = `p/links-replies/${link.id}/${RID}.webm`
+    const path = `p/links-audio/${link.id}/${RID}.webm`
     b.put(path, AUDIO, 'audio/webm', { 'links-by': 'ben' })
     const res = await h.replies.POST(post({ replyId: RID, contentType: 'audio/webm', durationSec: 4 }), id)
     expect(res.status).toBe(200)
