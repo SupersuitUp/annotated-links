@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 
 vi.mock('./vault.js', async (orig) => {
   const { memoryVault } = await import('@supersuit/cowitness/client')
@@ -9,7 +9,7 @@ vi.mock('./vault.js', async (orig) => {
 
 import { VoiceRecorder } from './voice-recorder.js'
 import { linksVault } from './vault.js'
-import { setUp } from '../../test/support/links-client.js'
+import { setUp, render } from '../../test/support/links-client.js'
 
 // A recorder as the spec has it, the same stand-in cowitness's VoiceNote tests use.
 let live: FakeRecorder | null = null

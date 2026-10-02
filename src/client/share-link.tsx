@@ -5,22 +5,27 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { forget, keepMeta, newRecordingId } from '@supersuit/cowitness/client'
 import type { AnnotatedLink, LinkPreview } from '../types.js'
+import { normalizeUrl } from '../url.js'
 import { DEFAULT_MIN_WHY_WORDS, whyProblem, whyWithoutUrl, whyWords } from '../why.js'
-import { api, linksConfig, nameOf, pages } from './config.js'
+import { useLinks } from './context.js'
 import { namesOf, shortDate } from './format.js'
 import { LinkCard } from './link-card.js'
-import { postJson } from './net.js'
-import { theme } from './theme.js'
+import { isPermanent, postJson } from './net.js'
 import { VoiceRecorder, type Recorded } from './voice-recorder.js'
-import { linksVault, whyKey } from './vault.js'
+import { whyKey } from './vault.js'
 import { newestUnsharedWhy, sendHeldWhys, shareLink, sweepUnsharedWhys, type HeldWhyMeta, type UnsharedWhy } from './why-send.js'
 
 export const PREVIEW_DEBOUNCE_MS = 400
 
 const looksLikeUrl = (s: string) => /^https?:\/\/\S+\.\S+/i.test(s.trim())
 
-// The words the counter counts: the rule's own count, so the two cannot drift apart.
-const typedWords = (why: string, url: string): number => whyWords(whyWithoutUrl(why, url.trim()))
+// The url the rule is checked against: the server checks the why against the NORMALIZED link
+// (tracking taken out), so the screen does too whenever the link parses, and the counter and the
+// server always count the same words.
+const ruleUrl = (url: string): string => {
+  try { return normalizeUrl(url).url } catch { return url.trim() }
+}
+const typedWords = (why: string, url: string): number => whyWords(whyWithoutUrl(why, url))
 export const URL_PROBLEM = 'Paste a web link (https://…)'
 
 // Share a link. The Share button follows the why rule exactly: it is off until the typed why
@@ -29,10 +34,11 @@ export const URL_PROBLEM = 'Paste a web link (https://…)'
 // A spoken why is held on the phone until the share is confirmed, and resent on the next visit
 // if the answer never came.
 export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; people: string[] }) {
-  const { me, minWhyWords, voiceReplies } = linksConfig()
+  const { config, me, theme: t, api, pages, nameOf, vault } = useLinks()
+  const { minWhyWords, voice } = config
   const min = minWhyWords ?? DEFAULT_MIN_WHY_WORDS
   const router = useRouter()
-  const t = theme()
+  const send = (draft: Parameters<typeof shareLink>[1], spoken?: Parameters<typeof shareLink>[2]) => shareLink(api, draft, spoken)
   const others = useMemo(() => [...new Set(people)].filter((p) => p !== me), [people, me])
 
   const [url, setUrl] = useState(initialUrl)
@@ -51,12 +57,12 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
   // handed in) offers back the newest spoken why that was recorded and never shared.
   useEffect(() => {
     let live = true
-    const vault = linksVault()
+    const v = vault()
     void (async () => {
-      await sweepUnsharedWhys(vault)
-      await sendHeldWhys(vault)
+      await sweepUnsharedWhys(v)
+      await sendHeldWhys(v, send)
       if (!initialUrl) {
-        const found = await newestUnsharedWhy(vault)
+        const found = await newestUnsharedWhy(v)
         if (live && found) setOffer(found)
       }
     })()
@@ -84,17 +90,20 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
   }, [url])
 
   const spokenRule = spoken ? { durationSec: spoken.durationSec, heard: spoken.heard } : undefined
-  const problem = whyProblem(why, url.trim(), min, spokenRule)
+  const checked = ruleUrl(url)
+  const problem = whyProblem(why, checked, min, spokenRule)
+  // Nothing is complained about on a form nobody has touched yet; the disabled Share says enough.
+  const engaged = url.trim() !== '' || why.trim() !== '' || spoken !== null
   const recipients = others.length > 1 ? to : others
   const canShare = !problem && looksLikeUrl(url) && recipients.length > 0 && !sending
 
   const onRecorded = (r: Recorded) => {
     // A new recording replaces the last one, which nothing will send now.
-    if (spoken) void forget(linksVault(), spoken.id)
+    if (spoken) void forget(vault(), spoken.id)
     setSpoken(r)
   }
   const dropSpoken = () => {
-    if (spoken) void forget(linksVault(), spoken.id)
+    if (spoken) void forget(vault(), spoken.id)
     setSpoken(null)
   }
 
@@ -103,17 +112,21 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
     setSending(true)
     setError(null)
     const draft = { url: url.trim(), why, to: recipients, shareId: draftId }
+    const v = vault()
     try {
-      const vault = linksVault()
       if (spoken) {
         const meta: HeldWhyMeta = { submitted: true, url: draft.url, why, to: recipients, heard: spoken.heard }
-        await keepMeta(vault, spoken.id, meta as Record<string, unknown>)
+        await keepMeta(v, spoken.id, meta as Record<string, unknown>)
       }
-      const out = await shareLink(draft, spoken ?? undefined)
-      if (spoken) await forget(vault, spoken.id)
+      const out = await send(draft, spoken ?? undefined)
+      if (spoken) await forget(v, spoken.id)
       if (out.earlier) setDone({ link: out.link, earlier: out.earlier })
       else router.push(pages.link(out.link.id))
     } catch (err) {
+      // Refused for good (no words heard in the voice note, say): the recording stays attached and on
+      // the phone as a draft, so it can be played back or recorded again, and is not resent on the
+      // next visit to be refused again.
+      if (spoken && isPermanent(err)) await keepMeta(v, spoken.id, { heard: spoken.heard }).catch(() => {})
       setError(err instanceof Error ? err.message : 'That did not send. Try again.')
     } finally {
       setSending(false)
@@ -122,9 +135,9 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
 
   if (done) {
     return (
-      <section className="mx-auto flex max-w-md flex-col gap-4 px-4 py-6" style={{ color: t.ink, fontFamily: t.fontBody }}>
+      <section className="mx-auto flex max-w-md flex-col gap-4 px-4 py-6" style={{ backgroundColor: t.paper, color: t.ink, fontFamily: t.fontBody }}>
         <p className="text-lg leading-snug" style={{ fontFamily: t.fontHeading }}>
-          Sent. You sent this to {namesOf(done.earlier.to)} on {shortDate(done.earlier.at)}.{' '}
+          Sent. You sent this to {namesOf(done.earlier.to, nameOf)} on {shortDate(done.earlier.at)}.{' '}
           <Link href={pages.link(done.earlier.id)} className="underline underline-offset-2">See the earlier one</Link>
         </p>
         <button
@@ -140,7 +153,7 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
   const shown = preview && preview.for === url.trim() ? preview : null
   return (
     <form
-      className="mx-auto flex max-w-md flex-col gap-5 px-4 py-6" style={{ color: t.ink, fontFamily: t.fontBody }}
+      className="mx-auto flex max-w-md flex-col gap-5 px-4 py-6" style={{ backgroundColor: t.paper, color: t.ink, fontFamily: t.fontBody }}
       onSubmit={(e) => { e.preventDefault(); void submit() }}
     >
       <h1 className="text-2xl" style={{ fontFamily: t.fontHeading }}>Share a link</h1>
@@ -184,12 +197,14 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
         />
       </label>
       <div className="-mt-3 flex flex-col gap-1 text-sm" style={{ color: t.mute }}>
-        <p>{typedWords(why, url)} of {min} words</p>
-        {!looksLikeUrl(url) && <p>{URL_PROBLEM}</p>}
-        {problem && <p aria-live="polite">{problem}</p>}
+        <p>{typedWords(why, checked)} of {min} words</p>
+        {engaged && !looksLikeUrl(url) && <p>{URL_PROBLEM}</p>}
+        {/* The typed count is already the line above; the rule's sentence is shown only when it says
+            something more, which is when a voice note is attached. */}
+        {engaged && problem && spoken && <p aria-live="polite">{problem}</p>}
       </div>
 
-      {voiceReplies && (
+      {voice && (
         spoken ? (
           <div className="flex items-center gap-3 rounded-xl px-3 py-2" style={{ backgroundColor: t.card, border: `1px solid ${t.hairline}` }}>
             <p className="flex-1 text-sm">Voice note, {spoken.durationSec} s</p>
@@ -197,7 +212,7 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
           </div>
         ) : null
       )}
-      {voiceReplies && offer && !spoken && (
+      {voice && offer && !spoken && (
         <button
           type="button" onClick={takeOffer} className="h-11 self-start rounded-full px-4 text-sm"
           style={{ backgroundColor: t.card, color: t.ink, border: `1px solid ${t.hairline}` }}
@@ -205,7 +220,7 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
           Use your recorded why ({offer.recorded.durationSec} s)
         </button>
       )}
-      {voiceReplies && <VoiceRecorder vaultKey={() => whyKey(draftId)} onRecorded={onRecorded} label={spoken ? 'Record again' : 'Record why'} />}
+      {voice && <VoiceRecorder vaultKey={() => whyKey(draftId)} onRecorded={onRecorded} label={spoken ? 'Record again' : 'Record why'} />}
 
       {error && <p role="alert" className="text-sm" style={{ color: t.danger }}>{error}</p>}
 

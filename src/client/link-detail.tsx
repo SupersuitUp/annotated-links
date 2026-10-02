@@ -2,14 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { AnnotatedLink, Reply } from '../types.js'
-import { api, nameOf } from './config.js'
+import { useLinks } from './context.js'
 import { namesOf, shortDate } from './format.js'
 import { LinkCard } from './link-card.js'
 import { postJson } from './net.js'
 import { ReplyBox } from './reply-box.js'
-import { sendHeldReplies } from './reply-send.js'
-import { theme } from './theme.js'
-import { linksVault } from './vault.js'
+import { sendHeldReplies, sendReply } from './reply-send.js'
 
 // A recording and its words beneath, played through the reader-checked audio route. With no
 // words yet it says so; with a reason in place of words it shows the reason, and `onRetry` (when
@@ -17,7 +15,7 @@ import { linksVault } from './vault.js'
 function Spoken({ src, words, wordsError, onRetry, large }: {
   src: string; words?: string; wordsError?: string; onRetry?(): Promise<void>; large?: boolean
 }) {
-  const t = theme()
+  const { theme: t } = useLinks()
   const [busy, setBusy] = useState(false)
   return (
     <figure className="flex flex-col gap-2">
@@ -44,9 +42,10 @@ function Spoken({ src, words, wordsError, onRetry, large }: {
 
 // One link, read the way the sender meant it: the why first, in large type (a spoken why plays
 // there with its words under it), then what the link is, then the conversation. A recipient's
-// first open marks it seen; the sender sees "Seen" once someone has.
-export function LinkDetail({ link: initial, me }: { link: AnnotatedLink; me: string }) {
-  const t = theme()
+// first open marks it seen; the sender sees "Seen" once someone has. Who is looking comes from the
+// provider's config.
+export function LinkDetail({ link: initial }: { link: AnnotatedLink }) {
+  const { me, theme: t, api, nameOf, vault } = useLinks()
   const [link, setLink] = useState(initial)
   const [retryNote, setRetryNote] = useState<string | null>(null)
   const markedFor = useRef<string | null>(null)
@@ -60,7 +59,7 @@ export function LinkDetail({ link: initial, me }: { link: AnnotatedLink; me: str
 
   useEffect(() => {
     let live = true
-    void sendHeldReplies(linksVault()).then((sent) => {
+    void sendHeldReplies(vault(), (...a) => sendReply(api, ...a)).then((sent) => {
       const mine = sent.filter((l) => l.id === initial.id)
       if (live && mine.length) setLink(mine[mine.length - 1])
     })
@@ -80,10 +79,10 @@ export function LinkDetail({ link: initial, me }: { link: AnnotatedLink; me: str
   const mine = link.by === me
 
   return (
-    <article className="mx-auto flex max-w-md flex-col gap-6 px-4 py-6" style={{ color: t.ink, fontFamily: t.fontBody }}>
+    <article className="mx-auto flex max-w-md flex-col gap-6 px-4 py-6" style={{ backgroundColor: t.paper, color: t.ink, fontFamily: t.fontBody }}>
       <header className="flex flex-col gap-3">
         <p className="text-sm" style={{ color: t.mute }}>
-          {mine ? `You sent this to ${namesOf(link.to)}` : `${nameOf(link.by)} sent you this`} · {shortDate(link.at)}
+          {mine ? `You sent this to ${namesOf(link.to, nameOf)}` : `${nameOf(link.by)} sent you this`} · {shortDate(link.at)}
         </p>
         {link.why.trim() && (
           <h1 className="whitespace-pre-wrap text-3xl leading-tight" style={{ fontFamily: t.fontHeading }}>{link.why}</h1>
@@ -95,9 +94,9 @@ export function LinkDetail({ link: initial, me }: { link: AnnotatedLink; me: str
           <span
             className="self-start rounded-full px-3 py-1 text-xs font-medium"
             style={{ backgroundColor: t.card, color: t.mute, border: `1px solid ${t.hairline}` }}
-            title={link.to.length > 1 ? `Seen by ${namesOf(seen)}` : undefined}
+            title={link.to.length > 1 ? `Seen by ${namesOf(seen, nameOf)}` : undefined}
           >
-            {link.to.length > 1 && seen.length < link.to.length ? `Seen by ${namesOf(seen)}` : 'Seen'}
+            {link.to.length > 1 && seen.length < link.to.length ? `Seen by ${namesOf(seen, nameOf)}` : 'Seen'}
           </span>
         )}
       </header>

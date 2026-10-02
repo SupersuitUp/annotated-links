@@ -8,5 +8,5 @@ export const dynamic = 'force-dynamic'
 export default async function LinksPage() {
   const m = await me()
   if (!m) notFound()
-  return <Frame me={m}><LinksHome links={await store.list(m)} me={m} /></Frame>
+  return <Frame me={m}><LinksHome links={await store.list(m)} /></Frame>
 }

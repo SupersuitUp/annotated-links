@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { LinkCard } from './link-card.js'
-import { setUp } from '../../test/support/links-client.js'
+import { setUp, render } from '../../test/support/links-client.js'
 
 setUp()
 

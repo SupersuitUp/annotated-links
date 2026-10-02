@@ -2,7 +2,7 @@
 
 import type { LinkPreview } from '../types.js'
 import { youtubeOf } from '../url.js'
-import { theme } from './theme.js'
+import { useLinks } from './context.js'
 
 const hostOf = (url: string): string => {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
@@ -13,7 +13,7 @@ const hostOf = (url: string): string => {
 // tab; with no preview, the site's name. A YouTube link whose preview failed still plays, from
 // the url alone.
 export function LinkCard({ url, preview }: { url: string; preview: LinkPreview | null }) {
-  const t = theme()
+  const { theme: t } = useLinks()
   const yt = preview?.kind === 'youtube' && preview.youtubeId
     ? { id: preview.youtubeId, startSec: preview.startSec }
     : !preview || preview.kind === 'youtube' ? youtubeOf(url) : null

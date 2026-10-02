@@ -3,7 +3,7 @@ import { memoryVault } from '@supersuit/cowitness/client'
 import { sendHeldReplies, sendReply } from './reply-send.js'
 import { newestUnsharedWhy, sendHeldWhys, sweepUnsharedWhys } from './why-send.js'
 import { SendError } from './net.js'
-import { bodyOf, callsTo, link, setUp, stubFetch } from '../../test/support/links-client.js'
+import { API, bodyOf, callsTo, link, setUp, stubFetch } from '../../test/support/links-client.js'
 
 setUp()
 afterEach(() => vi.unstubAllGlobals())
@@ -20,7 +20,7 @@ describe('sendReply', () => {
       if (url === '/api/links/l1/replies') return Response.json(link())
       return undefined
     })
-    await sendReply('l1', new Blob(['abc'], { type: 'audio/mp4' }), 5, 'r-00000001')
+    await sendReply(API, 'l1', new Blob(['abc'], { type: 'audio/mp4' }), 5, 'r-00000001')
     expect(bodyOf(callsTo(f, '/api/links/l1/reply-upload-url')[0][1])).toEqual({ replyId: 'r-00000001', contentType: 'audio/mp4', size: 3, durationSec: 5 })
     expect(f.mock.calls[1][1]).toMatchObject({ method: 'PUT', headers: { 'Content-Type': 'audio/mp4', 'x-goog-if-generation-match': '0' } })
     expect(bodyOf(callsTo(f, '/api/links/l1/replies')[0][1])).toEqual({ replyId: 'r-00000001', contentType: 'audio/mp4', durationSec: 5 })
@@ -28,7 +28,7 @@ describe('sendReply', () => {
 
   it('throws when the filing is refused, so the caller keeps the recording', async () => {
     stubFetch((url) => (url.endsWith('reply-upload-url') ? Response.json({ uploaded: true }) : Response.json({ error: 'no' }, { status: 403 })))
-    await expect(sendReply('l1', new Blob(['a'], { type: 'audio/mp4' }), 5, 'r-00000001')).rejects.toThrow('no')
+    await expect(sendReply(API, 'l1', new Blob(['a'], { type: 'audio/mp4' }), 5, 'r-00000001')).rejects.toThrow('no')
   })
 })
 

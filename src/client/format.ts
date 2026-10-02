@@ -1,5 +1,3 @@
-import { nameOf } from './config.js'
-
 // "Sep 3": a date the way a person says it, in the reader's own zone.
 export const shortDate = (iso: string): string => {
   const d = new Date(iso)
@@ -7,7 +5,7 @@ export const shortDate = (iso: string): string => {
 }
 
 // "Bo", "Bo and Cy", "Bo, Cy and Di".
-export const namesOf = (people: string[]): string => {
+export const namesOf = (people: string[], nameOf: (m: string) => string): string => {
   const n = people.map(nameOf)
   return n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`
 }

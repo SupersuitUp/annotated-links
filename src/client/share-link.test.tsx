@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor } from '@testing-library/react'
 
 const push = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }))
@@ -19,8 +19,10 @@ vi.mock('./vault.js', async (orig) => {
 })
 
 import { ShareLink } from './share-link.js'
+import { normalizeUrl } from '../url.js'
+import { whyWithoutUrl, whyWords } from '../why.js'
 import { linksVault } from './vault.js'
-import { bodyOf, callsTo, link, setUp, stubFetch } from '../../test/support/links-client.js'
+import { bodyOf, callsTo, link, setUp, stubFetch, render } from '../../test/support/links-client.js'
 
 const SEVEN = 'one two three four five six seven'
 const EIGHT = 'one two three four five six seven eight'
@@ -51,24 +53,77 @@ describe('ShareLink', () => {
     expect(share()).toBeEnabled()
   })
 
-  it('counts the words live, "n of min words"', () => {
+  it('counts the words live, "n of min words", and says the count once', () => {
     stubFetch(previewOk)
     render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
     expect(screen.getByText('0 of 8 words')).toBeInTheDocument()
     typeWhy('three words here')
     expect(screen.getByText('3 of 8 words')).toBeInTheDocument()
-    expect(screen.getByText('Say a little more about why: 3 of 8 words.')).toBeInTheDocument()
+    // The rule's own sentence would only repeat the counter.
+    expect(screen.queryByText('Say a little more about why: 3 of 8 words.')).toBeNull()
+    expect(screen.getAllByText(/3 of 8/)).toHaveLength(1)
   })
 
-  it('says what is missing on an empty form: the link, and the why', () => {
+  it('complains about nothing on an untouched form, with Share plainly off', () => {
     stubFetch(previewOk)
     render(<ShareLink people={['ada', 'bo']} />)
+    expect(share()).toBeDisabled()
+    expect(screen.getByText('0 of 8 words')).toBeInTheDocument()
+    expect(screen.queryByText('Paste a web link (https://…)')).toBeNull()
+    expect(screen.queryByText(/Say a little more/)).toBeNull()
+  })
+
+  it('says the link is missing once the person has typed a why, or a link that is not one', () => {
+    stubFetch(previewOk)
+    render(<ShareLink people={['ada', 'bo']} />)
+    typeWhy('a few words')
     expect(screen.getByText('Paste a web link (https://…)')).toBeInTheDocument()
-    expect(screen.getByText('Say a little more about why: 0 of 8 words.')).toBeInTheDocument()
+    typeWhy('')
+    expect(screen.queryByText('Paste a web link (https://…)')).toBeNull()
     typeUrl('not a link')
     expect(screen.getByText('Paste a web link (https://…)')).toBeInTheDocument()
     typeUrl('https://example.com/post')
     expect(screen.queryByText('Paste a web link (https://…)')).toBeNull()
+  })
+
+  it('counts against the link as the server keeps it, tracking taken out, for a scheme-less paste', () => {
+    stubFetch(previewOk)
+    render(<ShareLink initialUrl="https://example.com/post?utm_source=news" people={['ada', 'bo']} />)
+    // The page pasted clean and without its scheme: the server strips it from the why, so does the screen.
+    typeWhy('see example.com/post now')
+    expect(screen.getByText('2 of 8 words')).toBeInTheDocument()
+    // Pasted WITH its tracking: the server keeps the tracking words, so does the screen.
+    typeWhy('see example.com/post?utm_source=news now')
+    expect(screen.getByText('5 of 8 words')).toBeInTheDocument()
+    expect(whyWords(whyWithoutUrl('see example.com/post?utm_source=news now', normalizeUrl('https://example.com/post?utm_source=news').url))).toBe(5)
+  })
+
+  it('draws on the theme\'s paper', () => {
+    setUp({}, { paper: 'rgb(1, 2, 3)' })
+    stubFetch(previewOk)
+    render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
+    expect(screen.getByRole('heading', { name: 'Share a link' }).closest('form')).toHaveStyle({ backgroundColor: 'rgb(1, 2, 3)' })
+  })
+
+  it('shows the server\'s sentence when no words were heard, and keeps the recording to play or record again', async () => {
+    const SILENT = 'No words were heard in the voice note. Record it again or type why.'
+    stubFetch(previewOk, (url, init) => {
+      if (url === '/api/links/why-upload-url') return Response.json({ uploaded: true })
+      if (url === '/api/links' && init?.method === 'POST') return Response.json({ error: SILENT }, { status: 400 })
+      return undefined
+    })
+    render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Record 4s heard' }))
+    await linksVault().put({ id: 'r-why-heard', noteId: 'link-why:x', mimeType: 'audio/mp4', createdAt: '', durationSec: 4, stopped: true, chunks: [new Blob(['ab'])] })
+    typeWhy('short')
+    await act(async () => { fireEvent.click(share()) })
+    expect(await screen.findByText(SILENT)).toBeInTheDocument()
+    expect(screen.getByText('Voice note, 4 s')).toBeInTheDocument()
+    const held = await linksVault().get('r-why-heard')
+    expect(held).toBeDefined()
+    // A draft again, not a send: the next visit offers it back rather than resending a refusal.
+    expect((held?.meta as { submitted?: boolean }).submitted).not.toBe(true)
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('does not count the pasted link as words, the same as the rule', () => {
@@ -129,7 +184,7 @@ describe('ShareLink', () => {
   })
 
   it('has no record button when voice is off', () => {
-    setUp({ voiceReplies: false })
+    setUp({ voice: false })
     stubFetch(previewOk)
     render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
     expect(screen.queryByRole('button', { name: 'Record 4s heard' })).toBeNull()

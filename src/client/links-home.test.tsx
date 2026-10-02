@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { screen, fireEvent, within } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
 vi.mock('./vault.js', async (orig) => {
@@ -9,7 +9,7 @@ vi.mock('./vault.js', async (orig) => {
 })
 
 import { LinksHome } from './links-home.js'
-import { link, setUp, stubFetch } from '../../test/support/links-client.js'
+import { link, setUp, stubFetch, render } from '../../test/support/links-client.js'
 
 const LINKS = [
   link({ id: 'a', by: 'bo', to: ['ada'], why: 'unseen from bo about rockets', at: '2026-09-05T00:00:00.000Z' }),
@@ -22,7 +22,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('LinksHome', () => {
   it('shows unseen links first, then the whole library newest first', () => {
-    render(<LinksHome links={LINKS} me="ada" />)
+    render(<LinksHome links={LINKS} />)
     const unseen = screen.getByRole('region', { name: 'Unseen' })
     expect(within(unseen).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/links/a'])
     const library = screen.getByRole('region', { name: 'Library' })
@@ -30,12 +30,12 @@ describe('LinksHome', () => {
   })
 
   it('has no Unseen section when nothing is waiting', () => {
-    render(<LinksHome links={[LINKS[1], LINKS[2]]} me="ada" />)
+    render(<LinksHome links={[LINKS[1], LINKS[2]]} />)
     expect(screen.queryByRole('region', { name: 'Unseen' })).toBeNull()
   })
 
   it('filters the library by sender', () => {
-    render(<LinksHome links={LINKS} me="ada" />)
+    render(<LinksHome links={LINKS} />)
     fireEvent.click(screen.getByRole('button', { name: 'From Bo' }))
     const library = screen.getByRole('region', { name: 'Library' })
     expect(within(library).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/links/a', '/links/b'])
@@ -46,7 +46,7 @@ describe('LinksHome', () => {
   })
 
   it('searches the why, the title and the site', () => {
-    render(<LinksHome links={LINKS} me="ada" />)
+    render(<LinksHome links={LINKS} />)
     fireEvent.change(screen.getByLabelText('Search links'), { target: { value: 'rockets' } })
     const library = screen.getByRole('region', { name: 'Library' })
     expect(within(library).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/links/c', '/links/a'])
@@ -54,8 +54,14 @@ describe('LinksHome', () => {
     expect(within(library).getByText('No links match.')).toBeInTheDocument()
   })
 
+  it('draws on the theme\'s paper', () => {
+    setUp({}, { paper: 'rgb(1, 2, 3)' })
+    render(<LinksHome links={[]} />)
+    expect(screen.getByRole('heading', { name: 'Links' }).parentElement!.parentElement).toHaveStyle({ backgroundColor: 'rgb(1, 2, 3)' })
+  })
+
   it('offers sharing a link', () => {
-    render(<LinksHome links={[]} me="ada" />)
+    render(<LinksHome links={[]} />)
     expect(screen.getByRole('link', { name: 'Share a link' })).toHaveAttribute('href', '/links/share')
   })
 })

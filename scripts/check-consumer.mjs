@@ -126,6 +126,8 @@ try {
   expect(home.status === 200 && home.text.includes('Share a link') && home.text.includes('Unseen'), 'GET /links draws the Links home')
   const share = await call('GET', `/links/share?url=${encodeURIComponent('https://example.net/c')}`)
   expect(share.status === 200 && share.text.includes('Why are you sending this?') && share.text.includes('https://example.net/c'), 'GET /links/share?url= draws the form with the link in it')
+  const blank = await call('GET', '/links/share')
+  expect(blank.status === 200 && blank.text.replaceAll('<!-- -->', '').includes('0 of 8 words') && !blank.text.includes('Paste a web link'), 'GET /links/share draws an untouched form with no complaints')
   const detail = await call('GET', '/links/seed-youtube')
   expect(detail.status === 200 && detail.text.includes('youtube-nocookie.com/embed/M7lc1UVf-VE?start=42'), 'GET /links/[id] draws the link, playing from its start time')
 } finally {

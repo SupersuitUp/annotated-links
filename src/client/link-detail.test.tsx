@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
 vi.mock('./voice-recorder.js', () => ({
@@ -16,7 +16,7 @@ vi.mock('./vault.js', async (orig) => {
 import { StrictMode } from 'react'
 import { LinkDetail } from './link-detail.js'
 import { linksVault } from './vault.js'
-import { bodyOf, callsTo, link, setUp, stubFetch } from '../../test/support/links-client.js'
+import { bodyOf, callsTo, link, setUp, stubFetch, render } from '../../test/support/links-client.js'
 
 beforeEach(() => setUp())
 afterEach(async () => {
@@ -27,7 +27,7 @@ afterEach(async () => {
 describe('LinkDetail', () => {
   it('puts the why above the link card, in the heading face', () => {
     stubFetch()
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     const why = screen.getByText('this is exactly the onboarding problem we keep hitting')
     const card = screen.getByRole('link', { name: /A post/ })
     expect(why.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -35,34 +35,44 @@ describe('LinkDetail', () => {
 
   it('plays a spoken why from the why address, with its words beneath', () => {
     stubFetch()
-    const { container } = render(<LinkDetail link={link({ why: '', spokenWhy: { path: 'p', contentType: 'audio/mp4', durationSec: 9, words: 'the part at fourteen minutes' } })} me="bo" />)
+    setUp({ me: 'bo' })
+    const { container } = render(<LinkDetail link={link({ why: '', spokenWhy: { path: 'p', contentType: 'audio/mp4', durationSec: 9, words: 'the part at fourteen minutes' } })} />)
     expect(container.querySelector('audio')).toHaveAttribute('src', '/api/links/l1/replies/why/audio')
     expect(screen.getByText('the part at fourteen minutes')).toBeInTheDocument()
   })
 
+  it('draws on the theme\'s paper', () => {
+    setUp({}, { paper: 'rgb(1, 2, 3)' })
+    stubFetch()
+    const { container } = render(<LinkDetail link={link()} />)
+    expect(container.querySelector('article')).toHaveStyle({ backgroundColor: 'rgb(1, 2, 3)' })
+  })
+
   it('shows the sender "Seen" once a recipient opened it, and nothing before', () => {
     stubFetch()
-    const { rerender } = render(<LinkDetail link={link()} me="ada" />)
+    const { rerender } = render(<LinkDetail link={link()} />)
     expect(screen.queryByText('Seen')).toBeNull()
-    rerender(<LinkDetail key="2" link={link({ seenBy: { bo: '2026-09-03T13:00:00.000Z' } })} me="ada" />)
+    rerender(<LinkDetail key="2" link={link({ seenBy: { bo: '2026-09-03T13:00:00.000Z' } })} />)
     expect(screen.getByText('Seen')).toBeInTheDocument()
   })
 
   it('does not show "Seen" to the recipient', () => {
     stubFetch()
-    render(<LinkDetail link={link({ seenBy: { bo: '2026-09-03T13:00:00.000Z' } })} me="bo" />)
+    setUp({ me: 'bo' })
+    render(<LinkDetail link={link({ seenBy: { bo: '2026-09-03T13:00:00.000Z' } })} />)
     expect(screen.queryByText('Seen')).toBeNull()
   })
 
   it('marks it seen once when a recipient opens it, even under StrictMode', async () => {
     const f = stubFetch((url) => (url === '/api/links/l1/seen' ? Response.json(link({ seenBy: { bo: 'x' } })) : undefined))
-    render(<StrictMode><LinkDetail link={link()} me="bo" /></StrictMode>)
+    setUp({ me: 'bo' })
+    render(<StrictMode><LinkDetail link={link()} /></StrictMode>)
     await waitFor(() => expect(callsTo(f, '/api/links/l1/seen')).toHaveLength(1))
   })
 
   it('never marks it seen for the sender', async () => {
     const f = stubFetch()
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     await act(async () => {})
     expect(callsTo(f, '/api/links/l1/seen')).toHaveLength(0)
   })
@@ -71,7 +81,7 @@ describe('LinkDetail', () => {
     const f = stubFetch((url, init) => url === '/api/links/l1/replies'
       ? Response.json(link({ replies: [{ id: 'x1', by: 'ada', at: '2026-09-03T14:00:00.000Z', text: bodyOf(init).text }] }))
       : undefined)
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'watching it tonight' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send' })) })
     expect(await screen.findByText('watching it tonight')).toBeInTheDocument()
@@ -81,7 +91,7 @@ describe('LinkDetail', () => {
 
   it('keeps a typed reply in the box and says why when the send fails', async () => {
     stubFetch((url) => (url === '/api/links/l1/replies' ? Response.json({ error: 'that link is gone' }, { status: 404 }) : undefined))
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'watching it tonight' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send' })) })
     expect(await screen.findByText('that link is gone')).toBeInTheDocument()
@@ -94,7 +104,7 @@ describe('LinkDetail', () => {
       if (url === '/api/links/l1/replies') return Response.json(link({ replies: [{ id: bodyOf(init).replyId, by: 'ada', at: '2026-09-03T14:00:00.000Z', voice: { path: 'p', contentType: 'audio/webm', durationSec: 6 } }] }))
       return undefined
     })
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     await act(async () => {})
     // The recorder held it under the link's key as it recorded; the stand-in does what the real one does.
     await linksVault().put({ id: 'r-reply-0001', noteId: 'link:l1', mimeType: 'audio/webm', createdAt: '', durationSec: 6, stopped: true, chunks: [new Blob(['ab'])] })
@@ -108,7 +118,7 @@ describe('LinkDetail', () => {
   it('lets go of a spoken reply refused for good, and keeps one that merely failed', async () => {
     let status = 404
     stubFetch((url) => (url === '/api/links/l1/reply-upload-url' ? Response.json({ error: status === 404 ? 'that link is gone' : 'down' }, { status }) : undefined))
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     await act(async () => {})
     const hold = () => linksVault().put({ id: 'r-reply-0001', noteId: 'link:l1', mimeType: 'audio/webm', createdAt: '', durationSec: 6, stopped: true, chunks: [new Blob(['ab'])] })
     await hold()
@@ -129,7 +139,7 @@ describe('LinkDetail', () => {
       if (url === '/api/links/l1/replies') return Response.json(link({ replies: [{ id: bodyOf(init).replyId, by: 'ada', at: 'x', voice: { path: 'p', contentType: 'audio/mp4', durationSec: 5 } }] }))
       return undefined
     })
-    render(<LinkDetail link={link()} me="ada" />)
+    render(<LinkDetail link={link()} />)
     await waitFor(() => expect(callsTo(f, '/api/links/l1/replies')).toHaveLength(1))
     await waitFor(async () => expect(await linksVault().get('r-held-00001')).toBeUndefined())
   })
@@ -138,7 +148,7 @@ describe('LinkDetail', () => {
     const f = stubFetch((url) => url === '/api/links/l1/replies/v1/transcribe'
       ? Response.json(link({ replies: [{ id: 'v1', by: 'bo', at: 'x', voice: { path: 'p', contentType: 'audio/mp4', durationSec: 5, words: 'got it now' } }] }))
       : undefined)
-    render(<LinkDetail link={link({ replies: [{ id: 'v1', by: 'bo', at: '2026-09-03T14:00:00.000Z', voice: { path: 'p', contentType: 'audio/mp4', durationSec: 5, wordsError: 'the recording could not be made out' } }] })} me="ada" />)
+    render(<LinkDetail link={link({ replies: [{ id: 'v1', by: 'bo', at: '2026-09-03T14:00:00.000Z', voice: { path: 'p', contentType: 'audio/mp4', durationSec: 5, wordsError: 'the recording could not be made out' } }] })} />)
     expect(screen.getByText('Bo')).toBeInTheDocument()
     expect(screen.getByText(/the recording could not be made out/)).toBeInTheDocument()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Try again' })) })

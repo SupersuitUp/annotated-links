@@ -5,8 +5,7 @@ import {
   AUDIO_BITS_PER_SECOND, MIC_CONSTRAINTS, RECORD_MAX_SEC, analyserListener, beginRecording, endRecording, forget, formatClock,
   keepChunk, keepMeta, newAudioContext, newRecordingId, pickMimeType, shouldKeep, startTally, tally, type Listener, type SpeechTally,
 } from '@supersuit/cowitness/client'
-import { theme } from './theme.js'
-import { linksVault } from './vault.js'
+import { useLinks } from './context.js'
 
 export interface Recorded { blob: Blob; durationSec: number; id: string; heard: boolean }
 
@@ -30,7 +29,7 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
   const [said, setSaid] = useState(false)
   const rec = useRef<{ r: MediaRecorder; stream: MediaStream; id: string; started: number; listener: Listener | null; tally: SpeechTally } | null>(null)
   const mounted = useRef(true)
-  const t = theme()
+  const { theme: t, vault } = useLinks()
 
   const discard = () => {
     const cur = rec.current
@@ -41,7 +40,7 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
     try { if (cur.r.state === 'recording') cur.r.stop() } catch { /* already stopped */ }
     cur.stream.getTracks().forEach((x) => x.stop())
     cur.listener?.close()
-    void forget(linksVault(), cur.id)
+    void forget(vault(), cur.id)
   }
 
   useEffect(() => {
@@ -72,15 +71,15 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
       if (!mounted.current) { stream.getTracks().forEach((x) => x.stop()); void ctx?.close().catch(() => {}); return }
       const mimeType = pickMimeType((x) => MediaRecorder.isTypeSupported(x))
       const r = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND })
-      const vault = linksVault()
+      const store = vault()
       const newId = newRecordingId()
       id = newId
       const started = Date.now()
       const chunks: Blob[] = []
-      await beginRecording(vault, { id: newId, noteId: vaultKey(newId), mimeType: r.mimeType || mimeType })
-      if (!mounted.current) { stream.getTracks().forEach((x) => x.stop()); void ctx?.close().catch(() => {}); void forget(vault, newId); return }
+      await beginRecording(store, { id: newId, noteId: vaultKey(newId), mimeType: r.mimeType || mimeType })
+      if (!mounted.current) { stream.getTracks().forEach((x) => x.stop()); void ctx?.close().catch(() => {}); void forget(store, newId); return }
       const opened = stream
-      r.ondataavailable = (e) => { chunks.push(e.data); void keepChunk(vault, newId, e.data, (Date.now() - started) / 1000) }
+      r.ondataavailable = (e) => { chunks.push(e.data); void keepChunk(store, newId, e.data, (Date.now() - started) / 1000) }
       r.onstop = () => {
         const cur = rec.current
         const durationSec = Math.max(1, Math.round((Date.now() - started) / 1000))
@@ -88,8 +87,8 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
         opened.getTracks().forEach((x) => x.stop())
         cur?.listener?.close()
         rec.current = null
-        void endRecording(vault, newId, durationSec)
-        void keepMeta(vault, newId, { heard })
+        void endRecording(store, newId, durationSec)
+        void keepMeta(store, newId, { heard })
         onRecorded({ blob: new Blob(chunks, { type: r.mimeType || mimeType }), durationSec, id: newId, heard })
       }
       rec.current = { r, stream, id: newId, started, listener: analyserListener(stream, ctx), tally: startTally() }
@@ -98,7 +97,7 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
     } catch {
       stream?.getTracks().forEach((x) => x.stop())
       void ctx?.close().catch(() => {})
-      if (id) void forget(linksVault(), id).catch(() => {})
+      if (id) void forget(vault(), id).catch(() => {})
       if (mounted.current) setState('failed')
     }
   }

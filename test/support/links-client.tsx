@@ -1,13 +1,29 @@
+import type { ReactElement, ReactNode } from 'react'
 import { vi } from 'vitest'
+import { render as rtlRender, type RenderOptions } from '@testing-library/react'
 import type { AnnotatedLink } from '../../src/types.js'
-import { configure, type LinksClientConfig } from '../../src/client/config.js'
+import { apiAt, type LinksClientConfig } from '../../src/client/config.js'
+import { LinksProvider } from '../../src/client/provider.js'
+import type { LinksTheme } from '../../src/client/theme.js'
 
 export const CONFIG: LinksClientConfig = {
-  apiBase: '/api/links', pagesBase: '/links', me: 'ada', names: { ada: 'Ada', bo: 'Bo', cy: 'Cy' }, minWhyWords: 8, voiceReplies: true,
+  apiBase: '/api/links', pagesBase: '/links', me: 'ada', names: { ada: 'Ada', bo: 'Bo', cy: 'Cy' }, minWhyWords: 8, voice: true,
+}
+export const API = apiAt(CONFIG.apiBase)
+
+// The config the next render() wraps its screen in. Set per test; nothing in the package is global.
+let current: { config: LinksClientConfig; theme?: Partial<LinksTheme> } = { config: CONFIG }
+
+export function setUp(over: Partial<LinksClientConfig> = {}, theme?: Partial<LinksTheme>): void {
+  current = { config: { ...CONFIG, ...over }, theme }
 }
 
-export function setUp(over: Partial<LinksClientConfig> = {}): void {
-  configure({ ...CONFIG, ...over })
+// Testing Library's render, inside a LinksProvider holding the config setUp() last set. A
+// rerender keeps the same provider.
+export function render(ui: ReactElement, opts: Omit<RenderOptions, 'wrapper'> = {}) {
+  const { config, theme } = current
+  const wrapper = ({ children }: { children: ReactNode }) => <LinksProvider config={config} theme={theme}>{children}</LinksProvider>
+  return rtlRender(ui, { ...opts, wrapper })
 }
 
 export function link(over: Partial<AnnotatedLink> = {}): AnnotatedLink {

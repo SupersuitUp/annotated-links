@@ -3,19 +3,17 @@
 import { useState } from 'react'
 import { forget } from '@supersuit/cowitness/client'
 import type { AnnotatedLink } from '../types.js'
-import { linksConfig } from './config.js'
+import { useLinks } from './context.js'
 import { isPermanent } from './net.js'
 import { sendReply, sendText } from './reply-send.js'
-import { theme } from './theme.js'
-import { linksVault, replyKey } from './vault.js'
+import { replyKey } from './vault.js'
 import { VoiceRecorder, type Recorded } from './voice-recorder.js'
 
 // A reply under a link, typed or (when voice is on) spoken. A spoken reply is held on the phone
 // under `link:<id>` from its first second and let go only once the server has filed it; a send
 // that fails leaves it held, and the next visit sends it.
 export function ReplyBox({ linkId, onSent }: { linkId: string; onSent(link: AnnotatedLink): void }) {
-  const { voiceReplies } = linksConfig()
-  const t = theme()
+  const { config, theme: t, api, vault } = useLinks()
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -26,7 +24,7 @@ export function ReplyBox({ linkId, onSent }: { linkId: string; onSent(link: Anno
     setSending(true)
     setNote(null)
     try {
-      onSent(await sendText(linkId, body))
+      onSent(await sendText(api, linkId, body))
       setText('')
     } catch (err) {
       setNote(err instanceof Error ? err.message : 'That did not send. Try again.')
@@ -39,12 +37,12 @@ export function ReplyBox({ linkId, onSent }: { linkId: string; onSent(link: Anno
     setNote(null)
     setSending(true)
     try {
-      onSent(await sendReply(linkId, r.blob, r.durationSec, r.id))
-      await forget(linksVault(), r.id)
+      onSent(await sendReply(api, linkId, r.blob, r.durationSec, r.id))
+      await forget(vault(), r.id)
     } catch (err) {
       if (isPermanent(err)) {
         // Refused for good: holding it would only retry a refusal on every visit.
-        await forget(linksVault(), r.id).catch(() => {})
+        await forget(vault(), r.id).catch(() => {})
         setNote(err instanceof Error ? err.message : 'The voice reply was refused.')
       } else {
         setNote('The voice reply did not send. It is kept on this phone and will be sent the next time you open this link.')
@@ -73,7 +71,7 @@ export function ReplyBox({ linkId, onSent }: { linkId: string; onSent(link: Anno
           Send
         </button>
       </form>
-      {voiceReplies && <VoiceRecorder vaultKey={() => replyKey(linkId)} onRecorded={(r) => void sendSpoken(r)} label="Record a reply" />}
+      {config.voice && <VoiceRecorder vaultKey={() => replyKey(linkId)} onRecorded={(r) => void sendSpoken(r)} label="Record a reply" />}
       {note && <p role="alert" className="text-sm" style={{ color: t.danger }}>{note}</p>}
     </div>
   )

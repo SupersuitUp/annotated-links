@@ -1,6 +1,6 @@
 import { audioOf, expired, forget, isEmpty, type VaultStore } from '@supersuit/cowitness/client'
 import type { AnnotatedLink } from '../types.js'
-import { api } from './config.js'
+import type { LinksApi } from './config.js'
 import { audioType, isPermanent, postJson, putTicketed, type Ticket } from './net.js'
 import { draftOfKey } from './vault.js'
 
@@ -13,7 +13,7 @@ export interface HeldWhyMeta { submitted?: boolean; url?: string; why?: string; 
 
 // One share. A spoken why goes up on its own ticket first and is named in the share by its id.
 // `shareId` is minted once per draft and sent on every attempt, so a retry files one link.
-export async function shareLink(draft: ShareDraft, spoken?: SpokenDraft): Promise<Shared> {
+export async function shareLink(api: LinksApi, draft: ShareDraft, spoken?: SpokenDraft): Promise<Shared> {
   let spokenWhy: { id: string; contentType: string; durationSec: number; heard: boolean } | undefined
   if (spoken) {
     const contentType = audioType(spoken.blob)
@@ -27,7 +27,9 @@ export async function shareLink(draft: ShareDraft, spoken?: SpokenDraft): Promis
 // Spoken whys whose Share was pressed and never confirmed (a dropped connection, a closed tab),
 // filed quietly on the next visit under the same shareId and let go once the server has them.
 // A recording whose Share was never pressed is a draft, not a send, and is left alone here.
-export async function sendHeldWhys(store: VaultStore, send: typeof shareLink = shareLink): Promise<number> {
+// `send` is shareLink bound to the provider's addresses.
+export type SendShare = (draft: ShareDraft, spoken?: SpokenDraft) => Promise<Shared>
+export async function sendHeldWhys(store: VaultStore, send: SendShare): Promise<number> {
   let sent = 0
   for (const rec of await store.all()) {
     const draftId = draftOfKey(rec.noteId)

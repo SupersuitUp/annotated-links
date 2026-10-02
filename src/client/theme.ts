@@ -1,6 +1,6 @@
-// The look the screens draw with, handed in by the app. Layout is Tailwind classes; every colour
-// and the heading face come from here, read at render, so setTheme() before the first render (the
-// provider does it) is all an app does to dress the screens in its own look.
+// The look the screens draw with, handed in by the app through <LinksProvider>. Layout is Tailwind
+// classes; every colour and the heading face come from here. A token left out keeps the default,
+// per provider: one provider's theme never reaches another's screens.
 export interface LinksTheme {
   /** The page behind everything. */
   paper: string
@@ -26,14 +26,11 @@ export const DEFAULT_THEME: LinksTheme = {
   fontHeading: 'Georgia, serif', fontBody: 'system-ui, sans-serif',
 }
 
-let current: LinksTheme = { ...DEFAULT_THEME }
-
-export function setTheme(t: Partial<LinksTheme>): void {
-  const next = { ...current }
-  for (const k of Object.keys(t) as (keyof LinksTheme)[]) {
-    if (t[k] !== undefined) next[k] = t[k] as string
+// The defaults with the app's tokens on top. A token given as undefined keeps its default.
+export function themeWith(t: Partial<LinksTheme> | undefined): LinksTheme {
+  const next = { ...DEFAULT_THEME }
+  for (const k of Object.keys(t ?? {}) as (keyof LinksTheme)[]) {
+    if (t![k] !== undefined) next[k] = t![k] as string
   }
-  current = next
+  return next
 }
-
-export const theme = (): LinksTheme => current

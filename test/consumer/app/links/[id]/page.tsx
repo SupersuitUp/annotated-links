@@ -10,5 +10,5 @@ export default async function LinkPage({ params }: { params: Promise<{ id: strin
   if (!m) notFound()
   const link = await store.get(m, (await params).id).catch(() => null)
   if (!link) notFound()
-  return <Frame me={m}><LinkDetail link={link} me={m} /></Frame>
+  return <Frame me={m}><LinkDetail link={link} /></Frame>
 }

@@ -1,15 +1,11 @@
 'use client'
 
+// What an app needs, and nothing it does not: the provider, the three screens, and the types it
+// configures them with. The screens send and resend everything themselves.
 // Named exports only: Next.js refuses `export *` inside a client boundary.
 export { LinksProvider } from './provider.js'
 export type { LinksClientConfig } from './config.js'
-export { setTheme, DEFAULT_THEME, type LinksTheme } from './theme.js'
+export type { LinksTheme } from './theme.js'
 export { LinksHome } from './links-home.js'
-export { ShareLink, PREVIEW_DEBOUNCE_MS } from './share-link.js'
+export { ShareLink } from './share-link.js'
 export { LinkDetail } from './link-detail.js'
-export { LinkCard } from './link-card.js'
-export { ReplyBox } from './reply-box.js'
-export { VoiceRecorder, type Recorded } from './voice-recorder.js'
-export { sendReply, sendText, sendHeldReplies } from './reply-send.js'
-export { shareLink, sendHeldWhys, type ShareDraft, type SpokenDraft, type Shared } from './why-send.js'
-export { whyKey, replyKey } from './vault.js'
