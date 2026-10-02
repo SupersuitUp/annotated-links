@@ -14,6 +14,9 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
     exclude: ['test/consumer/**', 'node_modules/**'],
+    // Cowitness's built client imports 'next/link' with no extension, which Node's own ESM loader
+    // refuses; run it through Vite the way an app's bundler does.
+    server: { deps: { inline: [/@supersuit\/cowitness/] } },
   },
   resolve: {
     // The consumer app's own modules import the package by name; in tests that name is this source.
