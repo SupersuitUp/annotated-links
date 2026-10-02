@@ -131,6 +131,9 @@ try {
   const detail = await call('GET', '/links/seed-youtube')
   expect(detail.status === 200 && detail.text.includes('youtube-nocookie.com/embed/M7lc1UVf-VE?start=42'), 'GET /links/[id] draws the link, playing from its start time')
 
+  const asSender = await call('GET', '/links/seed-youtube', { headers: as('ben') })
+  expect(asSender.status === 200 && asSender.text.includes('>Delete</button>') && !detail.text.includes('>Delete</button>'), 'with allowDelete on, GET /links/[id] draws Delete for its sender and not for its recipient')
+
   // Deleting: only the sender, and afterwards it is gone for both of them, with its recordings.
   const doomed = await call('POST', '/api/links', { headers: as('ana'), body: { url: 'https://example.net/d', why: EIGHT, to: ['ben'], shareId: 'consumer-delete' } })
   const did = doomed.json?.link?.id

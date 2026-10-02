@@ -9,6 +9,7 @@ import { LinkCard } from './link-card.js'
 import { deleteAt, postJson } from './net.js'
 import { ReplyBox } from './reply-box.js'
 import { sendHeldReplies, sendReply } from './reply-send.js'
+import { forgetHeldFor } from './vault.js'
 
 // A recording and its words beneath, played through the reader-checked audio route. With no
 // words yet it says so; with a reason in place of words it shows the reason, and `onRetry` (when
@@ -42,9 +43,11 @@ function Spoken({ src, words, wordsError, onRetry, large }: {
 }
 
 // The sender's way to take a link back, for everyone it went to. Nothing is deleted until the
-// second tap, and a refusal shows the server's own words. A recipient never sees it.
+// second tap, and a refusal shows the server's own words. A recipient never sees it, and nobody
+// does unless the app turned on `allowDelete` (it must mount DELETE first). Once deleted, whatever
+// this phone still holds for the link is let go, so it is never sent again.
 function DeleteLink({ link }: { link: AnnotatedLink }) {
-  const { theme: t, api, pages } = useLinks()
+  const { theme: t, api, pages, vault } = useLinks()
   const router = useRouter()
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -56,6 +59,7 @@ function DeleteLink({ link }: { link: AnnotatedLink }) {
     setNote(null)
     try {
       await deleteAt(api.link(link.id))
+      await forgetHeldFor(vault(), link).catch(() => 0)
       router.replace(pages.home())
     } catch (err) {
       setNote(err instanceof Error ? err.message : 'That did not go through. Try again.')
@@ -95,7 +99,7 @@ function DeleteLink({ link }: { link: AnnotatedLink }) {
 // first open marks it seen; the sender sees "Seen" once someone has. Who is looking comes from the
 // provider's config.
 export function LinkDetail({ link: initial }: { link: AnnotatedLink }) {
-  const { me, theme: t, api, nameOf, vault } = useLinks()
+  const { me, theme: t, api, nameOf, vault, config } = useLinks()
   const [link, setLink] = useState(initial)
   const [retryNote, setRetryNote] = useState<string | null>(null)
   const markedFor = useRef<string | null>(null)
@@ -172,7 +176,7 @@ export function LinkDetail({ link: initial }: { link: AnnotatedLink }) {
         <ReplyBox linkId={link.id} onSent={setLink} />
       </section>
 
-      {mine && <DeleteLink link={link} />}
+      {mine && config.allowDelete === true && <DeleteLink link={link} />}
     </article>
   )
 }

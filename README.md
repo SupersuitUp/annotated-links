@@ -191,7 +191,10 @@ The package hands these decisions to the host and cannot check them for you.
 Every route file is `export const runtime = 'nodejs'` plus one line such as
 `export const { GET, POST } = handlers.links`, or `export const { GET, DELETE } = handlers.link` for
 `<api>/[id]/route.ts`. A route file that does not re-export a method simply does not answer it, so
-an app that leaves out `DELETE` has no delete. Next.js reads segment config from the route file
+an app that leaves out `DELETE` has no delete. To offer delete, do both at once: export `DELETE`
+from `<api>/[id]/route.ts` and set `allowDelete: true` in the client config. The screens show no
+Delete until the flag is on, so a package update alone never offers a button the server answers
+with 405. Next.js reads segment config from the route file
 itself, so the `maxDuration` lines below go in the file too. Exactly the three routes that
 transcribe need it; no other route does. `<api>` is your `apiBase`.
 
@@ -248,9 +251,10 @@ export default async function SharePage({ searchParams }: { searchParams: Promis
 ```
 
 `LinksHome` takes `links` (from `store.list(me)`). `LinkDetail` takes `link` (from
-`store.get(me, id)`); for its sender it ends with Delete, which asks "Delete this link for both of
-you?" (Delete, Keep), then calls the `DELETE` route and goes back to `<pagesBase>`. A recipient sees
-no Delete. Mount `DELETE` on `<api>/[id]` or the confirmed tap answers with the route's refusal. `ShareLink` takes `people` and an optional `initialUrl`. Read in a server
+`store.get(me, id)`); with `allowDelete` on, for its sender it ends with Delete, which asks "Delete
+this link for both of you?" (Delete, Keep), then calls the `DELETE` route, lets go of any recording
+this phone still holds for the link (a reply waiting to send, or the spoken why it was shared with)
+so none of it is sent again, and goes back to `<pagesBase>`. A recipient never sees Delete. `ShareLink` takes `people` and an optional `initialUrl`. Read in a server
 component, and render inside `LinksProvider`.
 
 **Who is looking has one source: the provider's `config.me`.** No screen takes a `me` prop, so the
@@ -269,6 +273,7 @@ each draw with their own config and their own look.
 | `minWhyWords` | Optional. The same number the host has. Default 8. |
 | `voice` | Optional. The same switch the host has: the spoken why and spoken replies. |
 | `vaultName` | Optional. The IndexedDB database recordings wait in until the server has them. Default `annotated-links`. |
+| `allowDelete` | Optional. Shows the sender Delete on a link. Default off. Turn it on in the same change that exports `DELETE` from `<api>/[id]/route.ts`. |
 
 A screen given a different minimum or voice switch from the server offers what the server refuses.
 

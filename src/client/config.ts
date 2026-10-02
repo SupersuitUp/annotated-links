@@ -16,6 +16,11 @@ export interface LinksClientConfig {
   voice?: boolean
   /** The IndexedDB database recordings wait in until the server has them. Default "annotated-links". */
   vaultName?: string
+  /**
+   * Show the sender a Delete control on a link. Default false. Turn it on only once the app's
+   * `<api>/[id]` route exports DELETE, or the confirmed tap answers 405.
+   */
+  allowDelete?: boolean
 }
 
 // The handler addresses, one place, matching the route files an app mounts.

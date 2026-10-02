@@ -15,7 +15,7 @@ export async function me(): Promise<M | null> {
 export function Frame({ me, children }: { me: M; children: ReactNode }) {
   return (
     <LinksProvider
-      config={{ apiBase: '/api/links', pagesBase: '/links', me, names: NAMES, minWhyWords: 8, voice: true, vaultName: 'consumer-links' }}
+      config={{ apiBase: '/api/links', pagesBase: '/links', me, names: NAMES, minWhyWords: 8, voice: true, vaultName: 'consumer-links', allowDelete: true }}
       theme={{ paper: '#fbfaf7', primary: '#1f3a5f', fontHeading: 'Georgia, serif' }}
     >
       <main style={{ backgroundColor: '#fbfaf7', minHeight: '100dvh' }}>{children}</main>

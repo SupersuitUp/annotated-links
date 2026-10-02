@@ -17,6 +17,8 @@ vi.mock('./vault.js', async (orig) => {
 import { StrictMode } from 'react'
 import { LinkDetail } from './link-detail.js'
 import { linksVault } from './vault.js'
+import { sendHeldReplies } from './reply-send.js'
+import { sendHeldWhys } from './why-send.js'
 import { bodyOf, callsTo, link, setUp, stubFetch, render } from '../../test/support/links-client.js'
 
 beforeEach(() => { setUp(); replace.mockClear() })
@@ -159,12 +161,25 @@ describe('LinkDetail', () => {
 })
 
 describe('LinkDetail: deleting', () => {
+  beforeEach(() => setUp({ allowDelete: true }))
+
+  it('shows no Delete to anyone unless the app turned allowDelete on', () => {
+    stubFetch()
+    setUp()
+    const { unmount } = render(<LinkDetail link={link()} />)
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    unmount()
+    setUp({ allowDelete: false })
+    render(<LinkDetail link={link()} />)
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+  })
+
   it('offers Delete to the sender and never to a recipient', () => {
     stubFetch()
     const { unmount } = render(<LinkDetail link={link()} />)
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
     unmount()
-    setUp({ me: 'bo' })
+    setUp({ me: 'bo', allowDelete: true })
     render(<LinkDetail link={link()} />)
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
     expect(screen.queryByText(/Delete this link/)).toBeNull()
@@ -205,5 +220,32 @@ describe('LinkDetail: deleting', () => {
     render(<LinkDetail link={link({ to: ['bo', 'cy'] })} />)
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     expect(screen.getByText('Delete this link for everyone you sent it to?')).toBeInTheDocument()
+  })
+
+  it('lets go of what this phone holds for the deleted link, so none of it is sent again', async () => {
+    const held = (id: string, noteId: string, meta?: object) => linksVault().put({
+      id, noteId, mimeType: 'audio/webm', createdAt: new Date().toISOString(), durationSec: 5, stopped: true, chunks: [new Blob(['ab'])], ...(meta ? { meta } : {}),
+    })
+    const deleted = link({ spokenWhy: { path: 'p/links-why/why-rec-0001.webm', contentType: 'audio/webm', durationSec: 5 } })
+    // Answer nothing until the delete, so the page's own resend on open leaves the vault as it is.
+    stubFetch((url, init) => (url === '/api/links/l1' && init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ error: 'down' }, { status: 503 })))
+    render(<LinkDetail link={deleted} />)
+    await act(async () => {})
+    await held('r-reply-held-01', 'link:l1')
+    await held('why-rec-0001', 'link-why:draft-0001', { submitted: true, url: 'https://example.com/post', why: '', heard: true })
+    await held('r-reply-other-1', 'link:l2')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Delete' })) })
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/links'))
+    expect(await linksVault().get('r-reply-held-01')).toBeUndefined()
+    expect(await linksVault().get('why-rec-0001')).toBeUndefined()
+    expect(await linksVault().get('r-reply-other-1')).toBeDefined()
+    // What the next visit would resend: only the other link's reply, and no share at all.
+    const replies = vi.fn(async (linkId: string) => link({ id: linkId }))
+    const shares = vi.fn(async () => ({ link: link(), earlier: null }))
+    await sendHeldReplies(linksVault(), replies)
+    await sendHeldWhys(linksVault(), shares)
+    expect(replies.mock.calls.map((c) => c[0])).toEqual(['l2'])
+    expect(shares).not.toHaveBeenCalled()
   })
 })

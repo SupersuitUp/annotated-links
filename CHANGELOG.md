@@ -7,14 +7,19 @@
   every spoken reply, using the paths the record names. Only the sender may: a recipient gets 404,
   the same answer as a link they cannot read, so whether it exists never leaks. A second delete is
   404, never a fault, and a later share under the same `shareId` files a new link rather than
-  bringing the deleted one back. `LinkDetail` shows the sender Delete, asks "Delete this link for both
-  of you?" (Delete, Keep), and goes back to the library once it is gone; a refusal shows the
-  server's words.
+  bringing the deleted one back. With the new client config flag `allowDelete: true`, `LinkDetail`
+  shows the sender Delete, asks "Delete this link for both of you?" (Delete, Keep), and goes back to
+  the library once it is gone; a refusal shows the server's words.
+- **Off until the app says so.** `allowDelete` defaults to false, and with it off no Delete is
+  drawn, so updating the package alone never shows a button the app's route would answer with 405.
+- **The phone lets go too.** After a delete, the screen forgets whatever this phone still holds for
+  that link: replies waiting to send, and the spoken why it was shared with. None of it is resent, so
+  a held spoken why can never file the deleted share again under its `shareId`.
 - **Optional `announce.deleted(link, by)`** on the host. Leave it out and nobody is told.
 
-Nothing existing changes. To offer delete, an app adds one word to its `<api>/[id]/route.ts`:
-`export const { GET, DELETE } = handlers.link`. An app that does not keeps working as before, with
-no delete.
+Nothing existing changes. To offer delete, an app makes two changes together: `export const { GET,
+DELETE } = handlers.link` in its `<api>/[id]/route.ts`, and `allowDelete: true` in its
+`LinksProvider` config. An app that does neither keeps working exactly as before, with no delete.
 
 ## 0.1.0
 
