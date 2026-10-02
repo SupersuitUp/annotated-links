@@ -60,6 +60,46 @@ describe('ShareLink', () => {
     expect(screen.getByText('Say a little more about why: 3 of 8 words.')).toBeInTheDocument()
   })
 
+  it('says what is missing on an empty form: the link, and the why', () => {
+    stubFetch(previewOk)
+    render(<ShareLink people={['ada', 'bo']} />)
+    expect(screen.getByText('Paste a web link (https://…)')).toBeInTheDocument()
+    expect(screen.getByText('Say a little more about why: 0 of 8 words.')).toBeInTheDocument()
+    typeUrl('not a link')
+    expect(screen.getByText('Paste a web link (https://…)')).toBeInTheDocument()
+    typeUrl('https://example.com/post')
+    expect(screen.queryByText('Paste a web link (https://…)')).toBeNull()
+  })
+
+  it('does not count the pasted link as words, the same as the rule', () => {
+    stubFetch(previewOk)
+    render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
+    typeWhy('see example.com/post please')
+    expect(screen.getByText('2 of 8 words')).toBeInTheDocument()
+  })
+
+  it('offers back a why recorded on an earlier visit and never shared, under its own draft', async () => {
+    await linksVault().put({ id: 'r-earlier-01', noteId: 'link-why:draft-earlier', mimeType: 'audio/mp4', createdAt: new Date().toISOString(), durationSec: 6, stopped: true, chunks: [new Blob(['ab'])], meta: { heard: true } })
+    const f = stubFetch(previewOk, (url) => (url === '/api/links/why-upload-url' ? Response.json({ uploaded: true }) : undefined), shareOk())
+    render(<ShareLink people={['ada', 'bo']} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Use your recorded why (6 s)' }))
+    typeUrl('https://example.com/post')
+    expect(share()).toBeEnabled()
+    await act(async () => { fireEvent.click(share()) })
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/links/new1'))
+    const body = bodyOf(callsTo(f, '/api/links')[0][1])
+    expect(body.shareId).toBe('draft-earlier')
+    expect(body.spokenWhy).toEqual({ id: 'r-earlier-01', contentType: 'audio/mp4', durationSec: 6, heard: true })
+  })
+
+  it('does not offer an earlier why when a link was handed in', async () => {
+    await linksVault().put({ id: 'r-earlier-01', noteId: 'link-why:draft-earlier', mimeType: 'audio/mp4', createdAt: new Date().toISOString(), durationSec: 6, stopped: true, chunks: [new Blob(['ab'])], meta: { heard: true } })
+    stubFetch(previewOk)
+    render(<ShareLink initialUrl="https://example.com/post" people={['ada', 'bo']} />)
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: /Use your recorded why/ })).toBeNull()
+  })
+
   it('counts the minimum the app set', () => {
     setUp({ minWhyWords: 3 })
     stubFetch(previewOk)

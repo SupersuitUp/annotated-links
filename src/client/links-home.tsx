@@ -9,7 +9,7 @@ import { shortDate } from './format.js'
 import { sendHeldReplies } from './reply-send.js'
 import { theme } from './theme.js'
 import { linksVault } from './vault.js'
-import { sendHeldWhys } from './why-send.js'
+import { sendHeldWhys, sweepUnsharedWhys } from './why-send.js'
 
 const newestFirst = (a: AnnotatedLink, b: AnnotatedLink) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)
 
@@ -50,7 +50,7 @@ export function LinksHome({ links, me }: { links: AnnotatedLink[]; me: string })
 
   useEffect(() => {
     const vault = linksVault()
-    void sendHeldWhys(vault).then(() => sendHeldReplies(vault))
+    void sweepUnsharedWhys(vault).then(() => sendHeldWhys(vault)).then(() => sendHeldReplies(vault))
   }, [])
 
   const unseen = useMemo(() => unseenFor(links, me), [links, me])

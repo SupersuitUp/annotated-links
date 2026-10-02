@@ -25,6 +25,11 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+// A refusal that will be the same on every attempt: the recording it was for can be let go. A
+// dropped connection (0), a server fault (5xx) or a signed-out session (401) is worth another try.
+export const PERMANENT_REFUSALS: readonly number[] = [400, 403, 404, 409]
+export const isPermanent = (err: unknown): boolean => err instanceof SendError && PERMANENT_REFUSALS.includes(err.status)
+
 export type Ticket = { url: string; requiredHeaders: Record<string, string> } | { uploaded: true }
 
 // The bytes go straight to storage on the issued URL, with exactly the issued headers. A ticket

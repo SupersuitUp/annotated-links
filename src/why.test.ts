@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_MIN_WHY_WORDS, MIN_SPOKEN_WHY_SEC, whyProblem, whyWords } from './why.js'
+import { DEFAULT_MIN_WHY_WORDS, MIN_SPOKEN_WHY_SEC, whyProblem, whyWithoutUrl, whyWords } from './why.js'
 
 const URL_ = 'https://example.com/a'
 const eight = 'this made me think of our spring trip'
@@ -64,5 +64,12 @@ describe('a spoken why', () => {
 
   it('is not needed when the typed why already meets the minimum', () => {
     expect(whyProblem(eight, URL_, 8, { durationSec: 1, heard: false })).toBeNull()
+  })
+})
+
+describe('whyWithoutUrl', () => {
+  it('takes out the link as given and without its scheme, and nothing else', () => {
+    expect(whyWords(whyWithoutUrl('see https://example.com/a and example.com/a now', 'https://example.com/a'))).toBe(3)
+    expect(whyWithoutUrl('plain words', '')).toBe('plain words')
   })
 })

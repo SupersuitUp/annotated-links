@@ -1,7 +1,7 @@
 import { audioOf, forget, isEmpty, type VaultStore } from '@supersuit/cowitness/client'
 import type { AnnotatedLink } from '../types.js'
 import { api } from './config.js'
-import { audioType, postJson, putTicketed, type Ticket } from './net.js'
+import { audioType, isPermanent, postJson, putTicketed, type Ticket } from './net.js'
 import { linkOfKey } from './vault.js'
 
 export const sendText = (linkId: string, text: string) => postJson<AnnotatedLink>(api.replies(linkId), { text })
@@ -27,8 +27,10 @@ export async function sendHeldReplies(store: VaultStore, send: typeof sendReply 
     try {
       out.push(await send(linkId, audioOf(rec), rec.durationSec, rec.id))
       await forget(store, rec.id)
-    } catch {
-      // Still held; the next visit tries again.
+    } catch (err) {
+      // Refused for good (the link is gone, the id taken): nothing will ever file it. Anything
+      // else stays held and the next visit tries again.
+      if (isPermanent(err)) await forget(store, rec.id).catch(() => {})
     }
   }
   return out

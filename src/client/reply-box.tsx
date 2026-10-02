@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { forget } from '@supersuit/cowitness/client'
 import type { AnnotatedLink } from '../types.js'
 import { linksConfig } from './config.js'
+import { isPermanent } from './net.js'
 import { sendReply, sendText } from './reply-send.js'
 import { theme } from './theme.js'
 import { linksVault, replyKey } from './vault.js'
@@ -40,8 +41,14 @@ export function ReplyBox({ linkId, onSent }: { linkId: string; onSent(link: Anno
     try {
       onSent(await sendReply(linkId, r.blob, r.durationSec, r.id))
       await forget(linksVault(), r.id)
-    } catch {
-      setNote('The voice reply did not send. It is kept on this phone and will be sent the next time you open this link.')
+    } catch (err) {
+      if (isPermanent(err)) {
+        // Refused for good: holding it would only retry a refusal on every visit.
+        await forget(linksVault(), r.id).catch(() => {})
+        setNote(err instanceof Error ? err.message : 'The voice reply was refused.')
+      } else {
+        setNote('The voice reply did not send. It is kept on this phone and will be sent the next time you open this link.')
+      }
     } finally {
       setSending(false)
     }

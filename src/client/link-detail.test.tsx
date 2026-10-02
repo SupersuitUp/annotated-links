@@ -105,6 +105,23 @@ describe('LinkDetail', () => {
     expect(document.querySelector('audio[src="/api/links/l1/replies/r-reply-0001/audio"]')).not.toBeNull()
   })
 
+  it('lets go of a spoken reply refused for good, and keeps one that merely failed', async () => {
+    let status = 404
+    stubFetch((url) => (url === '/api/links/l1/reply-upload-url' ? Response.json({ error: status === 404 ? 'that link is gone' : 'down' }, { status }) : undefined))
+    render(<LinkDetail link={link()} me="ada" />)
+    await act(async () => {})
+    const hold = () => linksVault().put({ id: 'r-reply-0001', noteId: 'link:l1', mimeType: 'audio/webm', createdAt: '', durationSec: 6, stopped: true, chunks: [new Blob(['ab'])] })
+    await hold()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record reply' })) })
+    expect(await screen.findByText('that link is gone')).toBeInTheDocument()
+    expect(await linksVault().get('r-reply-0001')).toBeUndefined()
+    status = 503
+    await hold()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record reply' })) })
+    expect(await screen.findByText(/kept on this phone/)).toBeInTheDocument()
+    expect(await linksVault().get('r-reply-0001')).toBeDefined()
+  })
+
   it('resends a reply held from an earlier visit when the page opens', async () => {
     await linksVault().put({ id: 'r-held-00001', noteId: 'link:l1', mimeType: 'audio/mp4', createdAt: '', durationSec: 5, stopped: true, chunks: [new Blob(['ab'])] })
     const f = stubFetch((url, init) => {

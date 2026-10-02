@@ -9,8 +9,9 @@ export function whyWords(why: string): number {
   return (why.replace(URL_RUN, ' ').match(/[\p{L}\p{N}]+/gu) ?? []).length
 }
 
-// Text the link itself would add to the why: the url as given, and the same without its scheme.
-function withoutUrl(why: string, url: string): string {
+// The why with the link itself taken out: the url as given, and the same without its scheme. The
+// rule counts this, and so does any counter shown beside the box.
+export function whyWithoutUrl(why: string, url: string): string {
   let out = why
   const bare = url.replace(/^https?:\/\//i, '')
   for (const form of [url, bare]) {
@@ -29,7 +30,7 @@ export function whyProblem(
   spoken?: { durationSec: number; heard: boolean },
 ): string | null {
   const need = Math.max(1, Math.floor(Number.isFinite(min) ? min : DEFAULT_MIN_WHY_WORDS))
-  const have = whyWords(withoutUrl(why, url))
+  const have = whyWords(whyWithoutUrl(why, url))
   if (have >= need) return null
   if (spoken) {
     if (spoken.durationSec < MIN_SPOKEN_WHY_SEC) {

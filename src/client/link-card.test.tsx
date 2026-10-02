@@ -12,12 +12,18 @@ describe('LinkCard', () => {
     expect(f).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/abcdefghijk?start=840')
     expect(f).toHaveAttribute('allow', 'encrypted-media; picture-in-picture')
     expect(f).toHaveAttribute('allowfullscreen')
+    expect(f).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
     expect(screen.getByText('The talk')).toBeInTheDocument()
   })
 
   it('plays YouTube from the url alone when the preview failed', () => {
     const { container } = render(<LinkCard url="https://www.youtube.com/watch?v=abcdefghijk&t=30" preview={null} />)
     expect(container.querySelector('iframe')).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/abcdefghijk?start=30')
+  })
+
+  it('starts at 0 when a stored start is not a number', () => {
+    const { container } = render(<LinkCard url="https://youtu.be/abcdefghijk" preview={{ kind: 'youtube', youtubeId: 'abcdefghijk', startSec: Number.NaN, siteName: 'YouTube' }} />)
+    expect(container.querySelector('iframe')).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/abcdefghijk?start=0')
   })
 
   it('shows an image as the image', () => {

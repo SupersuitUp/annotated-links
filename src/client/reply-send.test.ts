@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { memoryVault } from '@supersuit/cowitness/client'
 import { sendHeldReplies, sendReply } from './reply-send.js'
-import { sendHeldWhys } from './why-send.js'
+import { newestUnsharedWhy, sendHeldWhys, sweepUnsharedWhys } from './why-send.js'
+import { SendError } from './net.js'
 import { bodyOf, callsTo, link, setUp, stubFetch } from '../../test/support/links-client.js'
 
 setUp()
@@ -58,5 +59,72 @@ describe('sendHeldWhys', () => {
       { blob: expect.any(Blob), durationSec: 5, id: 'r-why-00001', heard: true },
     )
     expect((await store.all()).map((r) => r.id)).toEqual(['r-why-00002'])
+  })
+})
+
+describe('held recordings refused for good are let go; anything else stays held', () => {
+  const refusal = (status: number) => new SendError('refused', status)
+
+  it.each([400, 403, 404, 409])('a reply refused %i is forgotten', async (status) => {
+    const store = memoryVault()
+    await store.put(rec('r-rep-00001', 'link:l1'))
+    await sendHeldReplies(store, vi.fn(async () => { throw refusal(status) }))
+    expect(await store.all()).toEqual([])
+  })
+
+  it.each([0, 401, 500, 503])('a reply that failed with %i stays held', async (status) => {
+    const store = memoryVault()
+    await store.put(rec('r-rep-00001', 'link:l1'))
+    await sendHeldReplies(store, vi.fn(async () => { throw refusal(status) }))
+    expect(await store.all()).toHaveLength(1)
+  })
+
+  it.each([400, 403, 404, 409])('a spoken why refused %i is forgotten', async (status) => {
+    const store = memoryVault()
+    await store.put(rec('r-why-00001', 'link-why:draft-0001', { meta: { submitted: true, url: 'https://example.com', heard: true } }))
+    await sendHeldWhys(store, vi.fn(async () => { throw refusal(status) }))
+    expect(await store.all()).toEqual([])
+  })
+
+  it.each([0, 401, 500, 503])('a spoken why that failed with %i stays held', async (status) => {
+    const store = memoryVault()
+    await store.put(rec('r-why-00001', 'link-why:draft-0001', { meta: { submitted: true, url: 'https://example.com', heard: true } }))
+    await sendHeldWhys(store, vi.fn(async () => { throw refusal(status) }))
+    expect(await store.all()).toHaveLength(1)
+  })
+
+  it('a plain Error (no status) stays held', async () => {
+    const store = memoryVault()
+    await store.put(rec('r-rep-00001', 'link:l1'))
+    await sendHeldReplies(store, vi.fn(async () => { throw new Error('offline') }))
+    expect(await store.all()).toHaveLength(1)
+  })
+})
+
+describe('unshared spoken whys', () => {
+  const NOW = new Date('2026-10-02T12:00:00.000Z')
+  const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString()
+
+  it('sweeps unshared whys past the keep window, and never a submitted one, a reply, or a fresh one', async () => {
+    const store = memoryVault()
+    await store.put(rec('r-old-unshared', 'link-why:d1', { createdAt: daysAgo(31), meta: { heard: true } }))
+    await store.put(rec('r-old-submitted', 'link-why:d2', { createdAt: daysAgo(31), meta: { submitted: true, url: 'https://x.test' } }))
+    await store.put(rec('r-old-reply', 'link:l1', { createdAt: daysAgo(31) }))
+    await store.put(rec('r-fresh-unshared', 'link-why:d3', { createdAt: daysAgo(2) }))
+    await store.put(rec('r-empty-running', 'link-why:d4', { createdAt: daysAgo(0), chunks: [], stopped: false }))
+    await store.put(rec('r-empty-stopped', 'link-why:d5', { createdAt: daysAgo(0), chunks: [] }))
+    expect(await sweepUnsharedWhys(store, NOW)).toBe(2)
+    expect((await store.all()).map((r) => r.id).sort()).toEqual(['r-empty-running', 'r-fresh-unshared', 'r-old-reply', 'r-old-submitted'])
+  })
+
+  it('finds the newest finished unshared why still in the window, with its draft id and heard', async () => {
+    const store = memoryVault()
+    await store.put(rec('r-older', 'link-why:d-older1', { createdAt: daysAgo(3), meta: { heard: true } }))
+    await store.put(rec('r-newer', 'link-why:d-newer1', { createdAt: daysAgo(1), durationSec: 7, meta: { heard: true } }))
+    await store.put(rec('r-sent', 'link-why:d-sent01', { createdAt: daysAgo(0), meta: { submitted: true, url: 'https://x.test' } }))
+    await store.put(rec('r-stale', 'link-why:d-stale1', { createdAt: daysAgo(40) }))
+    const found = await newestUnsharedWhy(store, NOW)
+    expect(found).toEqual({ draftId: 'd-newer1', recorded: { blob: expect.any(Blob), durationSec: 7, id: 'r-newer', heard: true } })
+    expect(await newestUnsharedWhy(memoryVault(), NOW)).toBeNull()
   })
 })

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { forget, keepMeta, newRecordingId } from '@supersuit/cowitness/client'
 import type { AnnotatedLink, LinkPreview } from '../types.js'
-import { DEFAULT_MIN_WHY_WORDS, whyProblem, whyWords } from '../why.js'
+import { DEFAULT_MIN_WHY_WORDS, whyProblem, whyWithoutUrl, whyWords } from '../why.js'
 import { api, linksConfig, nameOf, pages } from './config.js'
 import { namesOf, shortDate } from './format.js'
 import { LinkCard } from './link-card.js'
@@ -13,19 +13,15 @@ import { postJson } from './net.js'
 import { theme } from './theme.js'
 import { VoiceRecorder, type Recorded } from './voice-recorder.js'
 import { linksVault, whyKey } from './vault.js'
-import { sendHeldWhys, shareLink, type HeldWhyMeta } from './why-send.js'
+import { newestUnsharedWhy, sendHeldWhys, shareLink, sweepUnsharedWhys, type HeldWhyMeta, type UnsharedWhy } from './why-send.js'
 
 export const PREVIEW_DEBOUNCE_MS = 400
 
 const looksLikeUrl = (s: string) => /^https?:\/\/\S+\.\S+/i.test(s.trim())
 
-// The words the counter counts: the why without the link pasted into it, the same as the rule.
-const typedWords = (why: string, url: string): number => {
-  let out = why
-  const u = url.trim()
-  for (const form of [u, u.replace(/^https?:\/\//i, '')]) if (form) out = out.split(form).join(' ')
-  return whyWords(out)
-}
+// The words the counter counts: the rule's own count, so the two cannot drift apart.
+const typedWords = (why: string, url: string): number => whyWords(whyWithoutUrl(why, url.trim()))
+export const URL_PROBLEM = 'Paste a web link (https://…)'
 
 // Share a link. The Share button follows the why rule exactly: it is off until the typed why
 // reaches the minimum, or a voice note of at least 3 seconds in which speech was heard is
@@ -48,9 +44,32 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<{ link: AnnotatedLink; earlier: AnnotatedLink } | null>(null)
   // One id per draft, minted once and sent on every attempt, so a retry files one link.
-  const [draftId] = useState(() => newRecordingId())
+  const [draftId, setDraftId] = useState(() => newRecordingId())
+  const [offer, setOffer] = useState<UnsharedWhy | null>(null)
 
-  useEffect(() => { void sendHeldWhys(linksVault()) }, [])
+  // Old unshared recordings go, sent-but-unconfirmed ones are sent, and a fresh form (nothing
+  // handed in) offers back the newest spoken why that was recorded and never shared.
+  useEffect(() => {
+    let live = true
+    const vault = linksVault()
+    void (async () => {
+      await sweepUnsharedWhys(vault)
+      await sendHeldWhys(vault)
+      if (!initialUrl) {
+        const found = await newestUnsharedWhy(vault)
+        if (live && found) setOffer(found)
+      }
+    })()
+    return () => { live = false }
+  }, [])
+
+  const takeOffer = () => {
+    if (!offer) return
+    // The recording keeps its draft's id, so a resend after a lost answer files under the same shareId.
+    setDraftId(offer.draftId)
+    setSpoken(offer.recorded)
+    setOffer(null)
+  }
 
   useEffect(() => {
     const target = url.trim()
@@ -166,7 +185,8 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
       </label>
       <div className="-mt-3 flex flex-col gap-1 text-sm" style={{ color: t.mute }}>
         <p>{typedWords(why, url)} of {min} words</p>
-        {problem && (why.trim() || spoken) && <p aria-live="polite">{problem}</p>}
+        {!looksLikeUrl(url) && <p>{URL_PROBLEM}</p>}
+        {problem && <p aria-live="polite">{problem}</p>}
       </div>
 
       {voiceReplies && (
@@ -176,6 +196,14 @@ export function ShareLink({ initialUrl = '', people }: { initialUrl?: string; pe
             <button type="button" onClick={dropSpoken} className="h-10 px-2 text-sm underline underline-offset-2" style={{ color: t.mute }}>Remove</button>
           </div>
         ) : null
+      )}
+      {voiceReplies && offer && !spoken && (
+        <button
+          type="button" onClick={takeOffer} className="h-11 self-start rounded-full px-4 text-sm"
+          style={{ backgroundColor: t.card, color: t.ink, border: `1px solid ${t.hairline}` }}
+        >
+          Use your recorded why ({offer.recorded.durationSec} s)
+        </button>
       )}
       {voiceReplies && <VoiceRecorder vaultKey={() => whyKey(draftId)} onRecorded={onRecorded} label={spoken ? 'Record again' : 'Record why'} />}
 

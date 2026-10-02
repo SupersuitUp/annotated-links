@@ -21,14 +21,14 @@ export function LinkCard({ url, preview }: { url: string; preview: LinkPreview |
   const box = { backgroundColor: t.card, border: `1px solid ${t.hairline}`, color: t.ink }
 
   if (yt) {
-    const start = Math.max(0, Math.floor(yt.startSec ?? 0))
+    const start = Number.isFinite(yt.startSec) ? Math.max(0, Math.floor(yt.startSec as number)) : 0
     return (
       <figure className="overflow-hidden rounded-xl" style={box}>
         <div className="relative aspect-video w-full">
           <iframe
             src={`https://www.youtube-nocookie.com/embed/${yt.id}?start=${start}`}
             title={preview?.title ?? 'YouTube video'}
-            allow="encrypted-media; picture-in-picture" allowFullScreen
+            allow="encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin"
             className="absolute inset-0 h-full w-full border-0"
           />
         </div>

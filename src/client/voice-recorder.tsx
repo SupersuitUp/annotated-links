@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AUDIO_BITS_PER_SECOND, MIC_CONSTRAINTS, RECORD_MAX_SEC, analyserListener, beginRecording, endRecording, forget, formatClock,
-  heardSpeech, keepChunk, keepMeta, newAudioContext, newRecordingId, pickMimeType, startTally, tally, type Listener, type SpeechTally,
+  keepChunk, keepMeta, newAudioContext, newRecordingId, pickMimeType, shouldKeep, startTally, tally, type Listener, type SpeechTally,
 } from '@supersuit/cowitness/client'
 import { theme } from './theme.js'
 import { linksVault } from './vault.js'
@@ -14,8 +14,10 @@ export interface Recorded { blob: Blob; durationSec: number; id: string; heard: 
 // that are both about VoiceNote's internals: it opens its vault through Cowitness's own
 // configuration (so it throws outside a CowitnessProvider, and would write into that app's
 // Cowitness database inside one), and it cannot say whether speech was heard. Here the level is
-// read off the same stream and tallied with Cowitness's own speech rule, so `heard` means exactly
-// what it means for a Cowitness reaction.
+// read off the same stream and tallied, and `heard` is Cowitness's own `shouldKeep`: speech was
+// measured, or the meter was not measuring at all (no AudioContext, or one Safari left suspended,
+// which reads exactly zero). An unmeasured recording counts as heard rather than refusing words
+// nobody listened for; the server still files only bytes that arrived and are this person's.
 //
 // Every second of sound goes into the phone's vault as it is made, under `vaultKey(id)`, so a
 // dropped connection or a closed app never loses it. Walking away mid-recording (unmounting) turns
@@ -25,6 +27,7 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
 }) {
   const [state, setState] = useState<'idle' | 'recording' | 'failed'>('idle')
   const [sec, setSec] = useState(0)
+  const [said, setSaid] = useState(false)
   const rec = useRef<{ r: MediaRecorder; stream: MediaStream; id: string; started: number; listener: Listener | null; tally: SpeechTally } | null>(null)
   const mounted = useRef(true)
   const t = theme()
@@ -81,7 +84,7 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
       r.onstop = () => {
         const cur = rec.current
         const durationSec = Math.max(1, Math.round((Date.now() - started) / 1000))
-        const heard = cur ? heardSpeech(cur.tally) : false
+        const heard = cur?.listener ? shouldKeep(cur.tally) : true
         opened.getTracks().forEach((x) => x.stop())
         cur?.listener?.close()
         rec.current = null
@@ -99,20 +102,21 @@ export function VoiceRecorder({ vaultKey, onRecorded, label = 'Record' }: {
       if (mounted.current) setState('failed')
     }
   }
-  const stop = () => { if (rec.current?.r.state === 'recording') rec.current.r.stop(); setState('idle') }
+  const stop = () => { if (rec.current?.r.state === 'recording') rec.current.r.stop(); setState('idle'); setSaid(true) }
 
   return (
     <div className="flex items-center gap-3">
       <button
-        type="button" onClick={state === 'recording' ? stop : start}
+        type="button" aria-pressed={state === 'recording'} onClick={state === 'recording' ? stop : start}
         className="h-11 shrink-0 rounded-full px-4 text-sm font-medium"
         style={{ backgroundColor: state === 'recording' ? t.danger : t.card, color: state === 'recording' ? t.primaryText : t.ink, border: `1px solid ${t.hairline}` }}
       >
         {state === 'recording' ? 'Stop' : label}
       </button>
-      <p aria-live="polite" className="text-sm" style={{ color: state === 'failed' ? t.danger : t.mute }}>
-        {state === 'failed' ? 'The microphone did not open. Check the permission and try again.' : state === 'recording' ? formatClock(sec) : null}
-      </p>
+      {/* The clock is for the eye; a screen reader hears only that recording started or stopped. */}
+      {state === 'recording' && <p aria-hidden="true" className="text-sm tabular-nums" style={{ color: t.mute }}>{formatClock(sec)}</p>}
+      <p aria-live="polite" className="sr-only">{state === 'recording' ? 'Recording' : said ? 'Recording stopped' : ''}</p>
+      {state === 'failed' && <p role="alert" className="text-sm" style={{ color: t.danger }}>The microphone did not open. Check the permission and try again.</p>}
     </div>
   )
 }
