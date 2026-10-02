@@ -14,7 +14,7 @@ becomes for the people told, and how it looks.
 ## 30 seconds
 
 ```bash
-npm install @supersuit/annotated-links @supersuit/cowitness
+npm install @supersuit/annotated-links @supersuit/cowitness firebase-admin
 ```
 
 ```ts
@@ -30,7 +30,7 @@ export const { GET, POST } = createLinksHandlers(host).links
 ```tsx
 // app/links/page.tsx (a server component)
 <LinksProvider config={{ apiBase: '/api/links', pagesBase: '/links', me, names }}>
-  <LinksHome links={await createLinksStore(host).list(me)} me={me} />
+  <LinksHome links={await createLinksStore(host).list(me)} />
 </LinksProvider>
 ```
 
@@ -40,10 +40,11 @@ route, every screen, and an in-memory host.
 ## Install
 
 ```bash
-npm install @supersuit/annotated-links @supersuit/cowitness
+npm install @supersuit/annotated-links @supersuit/cowitness firebase-admin
 ```
 
-Node 20.9 or later. Peers: `react` and `react-dom` 19, `next` 16 (16.3.4 or later), `firebase-admin`
+`firebase-admin` is for the server entry; an app that only draws the screens can leave it out.
+Node 20.18.1 or later (the floor of `undici` 7, which the preview fetcher uses). Peers: `react` and `react-dom` 19, `next` 16 (16.3.4 or later), `firebase-admin`
 13 for the server entry, and `@supersuit/cowitness` 0.2, whose client recording primitives (the
 phone vault a recording waits in, `forget`, `keepMeta`, `newRecordingId`) this package records
 with. An app that also uses Cowitness's own screens keeps its own configuration; this package
@@ -61,11 +62,13 @@ With Tailwind 4, add to the stylesheet that imports Tailwind:
   `whyProblem`, `DEFAULT_MIN_WHY_WORDS`, `normalizeUrl`, `youtubeOf`, `mayRead`, `unseenFor`,
   `alreadySent`, `linksTile`, `matches`, `RuleError`).
 - `@supersuit/annotated-links/server`: `createLinksStore(host)`, `createLinksHandlers(host)`,
-  `unfurl`, and the request parsers and limits. Server only: it imports `server-only`, so a client
-  bundle that reaches it fails to build.
-- `@supersuit/annotated-links/client`: `LinksProvider`, `LinksHome`, `ShareLink`, `LinkDetail`,
-  `LinkCard`, `ReplyBox`, `VoiceRecorder`, and the send functions (`shareLink`, `sendHeldWhys`,
-  `sendReply`, `sendText`, `sendHeldReplies`) for an app that draws its own screens.
+  `unfurl`, the `AnnotatedLinksHost` type, `RuleError` and `isRuleError`, `UPLOADER_KEY`,
+  `WHY_AUDIO_ID`, and the limits (`AUDIO_MAX_BYTES`, `AUDIO_MAX_SEC`, `AUDIO_TYPES`,
+  `REPLY_MAX_CHARS`, `WHY_MAX_CHARS`). Server only: it imports `server-only`, so a client bundle
+  that reaches it fails to build.
+- `@supersuit/annotated-links/client`: `LinksProvider`, the three screens (`LinksHome`,
+  `ShareLink`, `LinkDetail`), and the `LinksClientConfig` and `LinksTheme` types. The screens send,
+  and resend what the phone is still holding, on their own; there is nothing else to call.
 
 ## The host (server)
 
@@ -77,15 +80,20 @@ short:
 - `people()`: everyone in the app. A share with no `to` goes to all of them but the sharer.
 - `db()` and `collection`: the Firestore collection links are kept in. Called on use, never at
   import, so building an app needs no credentials.
-- `storage`: `{ bucket(), prefix, signedUrl(path) }`, required when voice is on. `signedUrl` must
-  answer an absolute URL: the audio route redirects to it.
-- `transcription`: optional `{ languages, transcribe(audio, contentType, { language, speaker }) }`.
-  Without it, spoken whys and replies stay playable with no words under them.
+- `storage`: `{ bucket(), prefix, signedUrl(path) }`, required when voice is on. The audio route
+  redirects to what `signedUrl` answers, resolved against the request, so an absolute URL or a path
+  on the app's own origin both work.
+- `transcription`: optional `{ transcribe(audio, contentType, { language, speaker }), languages? }`.
+  The package always asks for `language: 'auto'`; `languages` is optional and not read. Without a
+  transcriber, spoken whys and replies stay playable with no words under them. With one, a voice
+  note it hears nothing in cannot stand in for a short typed why: the share is refused with "No
+  words were heard in the voice note. Record it again or type why." and nothing is filed or
+  announced. A transcriber that fails, rather than hearing nothing, does not block the share.
 - `announce.shared(link, to)`, `announce.replied(link, reply, to)`, optional `announce.seen(link, by)`:
   what each moment becomes (a push, in most apps). The package never sends one itself. Each is
   awaited after the write is saved, and a failure goes to `log` and never changes the answer.
 - `minWhyWords`: words a typed why must reach. Default 8.
-- `voiceReplies`: voice, ALL of it. It governs spoken replies AND the spoken why. Off (the
+- `voice`: voice, ALL of it. It governs spoken replies AND the spoken why. Off (the
   default): every voice route answers 404 and a share carrying a spoken why is refused. On:
   `storage` is required, and a host without it throws when the store is made, not on a person's
   first tap.
@@ -180,23 +188,24 @@ The package hands these decisions to the host and cannot check them for you.
 
 Every route file is `export const runtime = 'nodejs'` plus one line such as
 `export const { GET, POST } = handlers.links`. Next.js reads segment config from the route file
-itself, so the `maxDuration` lines below go in the file too. `<api>` is your `apiBase`.
+itself, so the `maxDuration` lines below go in the file too. Exactly the three routes that
+transcribe need it; no other route does. `<api>` is your `apiBase`.
 
 | `createLinksHandlers(host)` | Route file | Segment config |
 |---|---|---|
 | `.links.GET`, `.links.POST` | `<api>/route.ts` | `maxDuration = 300` (a spoken why is transcribed before the share answers) |
 | `.preview.POST` | `<api>/preview/route.ts` | |
-| `.whyUploadUrl.POST` | `<api>/why-upload-url/route.ts` | `maxDuration = 300` |
+| `.whyUploadUrl.POST` | `<api>/why-upload-url/route.ts` | |
 | `.agent.POST` | `<api>/agent/route.ts` | |
 | `.link.GET` | `<api>/[id]/route.ts` | |
 | `.seen.POST` | `<api>/[id]/seen/route.ts` | |
-| `.replies.POST` | `<api>/[id]/replies/route.ts` | `maxDuration = 300` |
-| `.replyUploadUrl.POST` | `<api>/[id]/reply-upload-url/route.ts` | `maxDuration = 300` |
-| `.replyAudio.GET` | `<api>/[id]/replies/[replyId]/audio/route.ts` | `maxDuration = 300` |
+| `.replies.POST` | `<api>/[id]/replies/route.ts` | `maxDuration = 300` (a spoken reply is transcribed after it answers) |
+| `.replyUploadUrl.POST` | `<api>/[id]/reply-upload-url/route.ts` | |
+| `.replyAudio.GET` | `<api>/[id]/replies/[replyId]/audio/route.ts` | |
 | `.replyTranscribe.POST` | `<api>/[id]/replies/[replyId]/transcribe/route.ts` | `maxDuration = 300` |
 
 `preview`, `why-upload-url` and `agent` are static segments beside `[id]`, which Next.js matches
-first. The voice routes answer 404 while `voiceReplies` is off.
+first. The voice routes answer 404 while `voice` is off.
 
 What each takes:
 
@@ -209,7 +218,8 @@ What each takes:
   send `requiredHeaders` exactly as issued: they are signed, and they carry `x-goog-meta-links-by`.
 - `replies` POST: `{ text }` for a typed reply, or `{ replyId, contentType, durationSec }` for a
   spoken one whose bytes are already uploaded. A spoken reply's words are written after it answers.
-- `replyAudio` GET: a 302 to a short-lived signed URL, behind the reader check. The reply id `why`
+- `replyAudio` GET: a 302 to a short-lived signed URL (resolved against the request), behind the
+  reader check. The reply id `why`
   plays the link's spoken why: `<api>/<id>/replies/why/audio`.
 - `replyTranscribe` POST: transcribes a filed spoken reply again, with no re-recording.
 
@@ -227,9 +237,14 @@ export default async function SharePage({ searchParams }: { searchParams: Promis
 }
 ```
 
-`LinksHome` takes `links` (from `store.list(me)`) and `me`. `LinkDetail` takes `link` (from
-`store.get(me, id)`) and `me`. `ShareLink` takes `people` and an optional `initialUrl`. Read in a
-server component, and render inside `LinksProvider`.
+`LinksHome` takes `links` (from `store.list(me)`). `LinkDetail` takes `link` (from
+`store.get(me, id)`). `ShareLink` takes `people` and an optional `initialUrl`. Read in a server
+component, and render inside `LinksProvider`.
+
+**Who is looking has one source: the provider's `config.me`.** No screen takes a `me` prop, so the
+person a page was read for and the person it is drawn for cannot disagree. The provider is React
+context: nothing is set globally, so two providers on one page, or one rendered after another,
+each draw with their own config and their own look.
 
 **Config:**
 
@@ -237,19 +252,21 @@ server component, and render inside `LinksProvider`.
 |---|---|
 | `apiBase` | Where the handlers are mounted (see the table above). |
 | `pagesBase` | Where the pages live: `<pagesBase>`, `<pagesBase>/<id>`, `<pagesBase>/share`. |
-| `me` | The member key of the person looking. |
+| `me` | The member key of the person looking. The only place the screens learn it. |
 | `names` | Each member key's display name. Passed from the server, so names never ship to a signed-out visitor. |
 | `minWhyWords` | Optional. The same number the host has. Default 8. |
-| `voiceReplies` | Optional. The same switch the host has: the spoken why and spoken replies. |
+| `voice` | Optional. The same switch the host has: the spoken why and spoken replies. |
 | `vaultName` | Optional. The IndexedDB database recordings wait in until the server has them. Default `annotated-links`. |
 
 A screen given a different minimum or voice switch from the server offers what the server refuses.
 
 **Theme:** pass any of these to `LinksProvider` as `theme`; a token left out keeps a neutral default.
+The theme belongs to that provider alone: a provider with no `theme` draws with the defaults
+whatever another provider was given.
 
 | Token | What it colours |
 |---|---|
-| `paper` | The page behind everything. |
+| `paper` | The page behind everything: the background of each screen. |
 | `card` | A raised surface: the link card, a reply, a field. |
 | `ink` | Text. |
 | `mute` | Secondary text: dates, counters, hints. |

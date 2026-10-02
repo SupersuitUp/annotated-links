@@ -35,7 +35,7 @@
     "check:consumer": "node scripts/check-consumer.mjs"
   },
   "engines": {
-    "node": ">=20.9"
+    "node": ">=20.18.1"
   },
   "license": "MIT",
   "repository": {
