@@ -1,7 +1,7 @@
 import type { Firestore } from 'firebase-admin/firestore'
 
 // An in-memory stand-in for the slice of the Firestore Admin API the stores use: collections of
-// documents, one equality where(), whole-collection reads, transactions and batches. Every write
+// documents, one equality or array-contains where(), whole-collection reads, transactions and batches. Every write
 // stores a deep copy and every read hands one back, so a store that edits what it read and forgets
 // to write it is caught rather than hidden.
 type Data = Record<string, unknown>
@@ -38,8 +38,9 @@ export function fakeFirestore() {
     collection: (name: string) => ({
       doc: (id?: string) => ref(name, id ?? `auto${++auto}`),
       where: (field: string, op: string, value: unknown) => {
-        if (op !== '==') throw new Error(`the fake supports == only, not ${op}`)
-        return query(name, (d) => d[field] === value)
+        if (op === '==') return query(name, (d) => d[field] === value)
+        if (op === 'array-contains') return query(name, (d) => Array.isArray(d[field]) && (d[field] as unknown[]).includes(value))
+        throw new Error(`the fake supports == and array-contains only, not ${op}`)
       },
       get: async () => query(name, () => true).get(),
     }),
