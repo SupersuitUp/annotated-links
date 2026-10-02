@@ -12,6 +12,13 @@ type ReplyParams = { params: Promise<{ id: string; replyId: string }> }
 // declares its own segment config (`runtime = 'nodejs'`, and a longer `maxDuration` on the routes
 // that transcribe: links POST with a spoken why, replies POST and replyTranscribe), because Next.js
 // reads those from the route file itself.
+//
+// Where each is mounted, under the app's apiBase (the client's `api` addresses assume exactly these):
+//   links        <api>                                    whyUploadUrl     <api>/why-upload-url
+//   preview      <api>/preview                            agent            <api>/agent
+//   link         <api>/[id]                               seen             <api>/[id]/seen
+//   replies      <api>/[id]/replies                       replyUploadUrl   <api>/[id]/reply-upload-url
+//   replyAudio   <api>/[id]/replies/[replyId]/audio       replyTranscribe  <api>/[id]/replies/[replyId]/transcribe
 export function createLinksHandlers<M extends string>(host: AnnotatedLinksHost<M>, store: LinksStore<M> = createLinksStore(host)) {
   // The host's own refusals ADD to the package's: a RuleError always reaches the client with its words.
   const handle = (fn: () => Promise<Response>) => handleWith(fn, (err) => isRuleError(err) || host.isRefusal?.(err) === true)
